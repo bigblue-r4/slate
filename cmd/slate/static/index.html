@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SLATE — Secure Log Audit for Trace Evidence</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2128;
+    --border: #30363d;
+    --accent: #2f81f7;
+    --accent-dim: #1f6feb;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --hold: #f0883e;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+  /* Login */
+  #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 36px; width: 340px; text-align: center; }
+  .login-card h1 { font-size: 22px; color: var(--accent); margin-bottom: 4px; }
+  .login-card .tagline { color: var(--muted); font-size: 12px; margin-bottom: 28px; }
+  .login-card input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+  .login-card input:focus { outline: none; border-color: var(--accent); }
+  .login-card button { width: 100%; padding: 10px; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .login-card button:hover { background: var(--accent-dim); }
+  #login-error { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 18px; }
+
+  /* App shell */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 20px; height: 50px; }
+  .brand { font-weight: 700; color: var(--accent); font-size: 15px; letter-spacing: .5px; }
+  .brand-sub { color: var(--muted); font-size: 11px; }
+  .header-info { color: var(--muted); font-size: 12px; }
+  .user-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; }
+  .role-chip { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-left: 6px; }
+  .role-chief         { background: rgba(47,129,247,.15); color: var(--accent); }
+  .role-evidence_clerk{ background: rgba(63,185,80,.15); color: var(--success); }
+  .role-tech_admin    { background: rgba(240,136,62,.15); color: var(--hold); }
+  .role-officer       { background: rgba(139,148,158,.15); color: var(--muted); }
+  .role-auditor       { background: rgba(210,153,34,.15); color: var(--warning); }
+  .spacer { flex: 1; }
+  .live-dot { width: 7px; height: 7px; background: var(--success); border-radius: 50%; }
+
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; }
+  nav button { padding: 12px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-family: var(--font); }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+  nav button[data-hidden] { display: none; }
+
+  main { flex: 1; padding: 24px; max-width: 1280px; width: 100%; margin: 0 auto; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  /* Cards & grids */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .stat-num { font-size: 30px; font-weight: 700; }
+  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .section-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-size: 14px; font-weight: 600; }
+  .mt16 { margin-top: 16px; }
+  .mb16 { margin-bottom: 16px; }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 9px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-active    { background: rgba(63,185,80,.12); color: var(--success); }
+  .badge-hold      { background: rgba(240,136,62,.12); color: var(--hold); }
+  .badge-destroyed { background: rgba(248,81,73,.12); color: var(--danger); }
+  .badge-info      { background: rgba(47,129,247,.12); color: var(--accent); }
+  .badge-warn      { background: rgba(210,153,34,.12); color: var(--warning); }
+
+  /* Forms */
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=date], select, textarea {
+    width: 100%; padding: 8px 11px; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; font-size: 13px; font-family: var(--font);
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 68px; }
+  .form-grid { display: grid; gap: 12px; }
+  .form-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-family: var(--font); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-dim); }
+  .btn-warn { background: rgba(248,81,73,.12); color: var(--danger); border: 1px solid rgba(248,81,73,.25); }
+  .btn-warn:hover { background: rgba(248,81,73,.22); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-ghost { background: rgba(47,129,247,.1); color: var(--accent); }
+  button[disabled] { opacity: .35; cursor: not-allowed; }
+
+  /* Event log */
+  .ev-row { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+  .ev-row:last-child { border-bottom: none; }
+  .ev-time { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 148px; white-space: nowrap; }
+  .ev-level { font-size: 11px; font-weight: 700; min-width: 38px; }
+  .ev-body .ev-name { font-size: 13px; }
+  .ev-body .ev-detail { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+
+  /* Mono */
+  .mono { font-family: var(--mono); font-size: 11px; }
+
+  /* Msg */
+  .msg { padding: 9px 13px; border-radius: 6px; margin-bottom: 14px; font-size: 13px; }
+  .msg-ok  { background: rgba(63,185,80,.1); color: var(--success); border: 1px solid rgba(63,185,80,.2); }
+  .msg-err { background: rgba(248,81,73,.1); color: var(--danger); border: 1px solid rgba(248,81,73,.2); }
+
+  /* Hold panel */
+  #hold-panel { display: none; }
+  .forbidden-note { color: var(--warning); font-size: 12px; font-style: italic; margin-top: 6px; }
+
+  @media (max-width: 800px) {
+    .grid-4 { grid-template-columns: 1fr 1fr; }
+    .grid-2 { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>SLATE</h1>
+    <div class="tagline">Secure Log Audit for Trace Evidence</div>
+    <input type="password" id="token-input" placeholder="Access token" autocomplete="current-password">
+    <button onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <div>
+      <div class="brand">SLATE</div>
+      <div class="brand-sub">Secure Log Audit for Trace Evidence</div>
+    </div>
+    <div class="header-info" id="node-info">—</div>
+    <div class="spacer"></div>
+    <div class="user-badge" id="user-badge">—</div>
+    <div class="live-dot" title="Live"></div>
+  </header>
+
+  <nav id="nav">
+    <button data-tab="chief"    class="active" onclick="switchTab('chief')">Chief</button>
+    <button data-tab="evidence" onclick="switchTab('evidence')">Evidence Room</button>
+    <button data-tab="admin"    onclick="switchTab('admin')">Tech / Admin</button>
+    <button data-tab="logs"     onclick="switchTab('logs')">Daily Logs</button>
+    <button data-tab="officer"  onclick="switchTab('officer')">Officer View</button>
+  </nav>
+
+  <main>
+
+    <!-- ══ CHIEF ══════════════════════════════════════════════════════════ -->
+    <div class="tab active" id="tab-chief">
+      <div class="grid-4">
+        <div class="card"><div class="card-title">Evidence Items</div><div class="stat-num" id="s-items">—</div></div>
+        <div class="card"><div class="card-title">Legal Holds</div><div class="stat-num" id="s-holds" style="color:var(--hold)">—</div></div>
+        <div class="card"><div class="card-title">Log Entries</div><div class="stat-num" id="s-log">—</div></div>
+        <div class="card"><div class="card-title">Node / Dept</div><div class="stat-num" id="s-node" style="font-size:17px">—</div><div class="stat-sub" id="s-dept">—</div></div>
+      </div>
+      <div class="card">
+        <div class="section-hdr">
+          <div class="section-title">Recent Activity</div>
+          <button class="btn btn-primary btn-sm" onclick="loadChief()">Refresh</button>
+        </div>
+        <div id="chief-events"><div style="color:var(--muted);padding:12px 0;">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- ══ EVIDENCE ROOM ══════════════════════════════════════════════════ -->
+    <div class="tab" id="tab-evidence">
+      <div class="grid-2 mb16">
+
+        <!-- Intake -->
+        <div class="card">
+          <div class="section-title mb16">Record Intake</div>
+          <div id="intake-msg"></div>
+          <div class="form-grid">
+            <div><label>Case Number *</label><input id="i-case" placeholder="CASE-2026-0001"></div>
+            <div><label>Category</label>
+              <select id="i-cat">
+                <option value="narcotics">Narcotics</option>
+                <option value="firearms">Firearms</option>
+                <option value="digital_media">Digital Media</option>
+                <option value="documents">Documents</option>
+                <option value="other" selected>Other</option>
+              </select>
+            </div>
+            <div><label>Description *</label><textarea id="i-desc" placeholder="Brief description of item"></textarea></div>
+            <div><label>Node / Location</label><input id="i-node" placeholder="evidence-room-1"></div>
+          </div>
+          <button class="btn btn-primary mt16" data-perm="intake" onclick="doIntake()">Record Intake</button>
+          <p class="forbidden-note" data-need-perm="intake" style="display:none">Your role cannot record intake.</p>
+        </div>
+
+        <!-- Transfer -->
+        <div class="card">
+          <div class="section-title mb16">Transfer Custody</div>
+          <div id="transfer-msg"></div>
+          <div class="form-grid">
+            <div><label>Item ID *</label><input id="t-item" placeholder="EV-YYYYMMDD-XXXXXXXX" class="mono"></div>
+            <div class="form-row">
+              <div><label>From Node</label><input id="t-from" placeholder="node-001"></div>
+              <div><label>To Node *</label><input id="t-to" placeholder="node-002"></div>
+            </div>
+            <div><label>Notes</label><input id="t-notes" placeholder="Reason for transfer"></div>
+          </div>
+          <button class="btn btn-primary mt16" data-perm="transfer" onclick="doTransfer()">Record Transfer</button>
+          <p class="forbidden-note" data-need-perm="transfer" style="display:none">Your role cannot record transfers.</p>
+        </div>
+      </div>
+
+      <!-- Items table -->
+      <div class="card">
+        <div class="section-hdr">
+          <div class="section-title">Evidence Items</div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input id="ev-filter" placeholder="Filter by case…" style="width:180px;" oninput="loadItems()">
+            <button class="btn btn-primary btn-sm" onclick="loadItems()">Refresh</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Case</th><th>Category</th><th>Description</th><th>Status</th><th>Hold</th><th>Node</th><th></th></tr></thead>
+            <tbody id="items-body"><tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px;">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Hold panel -->
+      <div class="card mt16" id="hold-panel">
+        <div class="section-title mb16">Legal Hold — <span id="hold-item-id" class="mono"></span></div>
+        <div id="hold-msg"></div>
+        <div class="form-row">
+          <div><label>Reason / Notes *</label><input id="h-reason" placeholder="Reason or case reference"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;">
+          <button class="btn btn-primary" data-perm="hold:set" onclick="doHoldSet()">Set Hold</button>
+          <button class="btn btn-warn" data-perm="hold:release" onclick="doHoldRelease()">Release Hold</button>
+          <button class="btn btn-ghost" onclick="closeHoldPanel()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ TECH / ADMIN ═══════════════════════════════════════════════════ -->
+    <div class="tab" id="tab-admin">
+      <div class="grid-2">
+        <div class="card">
+          <div class="section-title mb16">System Identity</div>
+          <table>
+            <tr><td style="color:var(--muted);width:120px;">Node ID</td><td class="mono" id="a-node">—</td></tr>
+            <tr><td style="color:var(--muted);">Department</td><td id="a-dept">—</td></tr>
+            <tr><td style="color:var(--muted);">Version</td><td id="a-ver">—</td></tr>
+            <tr><td style="color:var(--muted);">Log entries</td><td id="a-log">—</td></tr>
+            <tr><td style="color:var(--muted);">Last event</td><td class="mono" style="font-size:11px;" id="a-last">—</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <div class="section-title mb16">Generate Court Export</div>
+          <div id="export-msg"></div>
+          <div class="form-grid">
+            <div><label>Case Number *</label><input id="ex-case" placeholder="CASE-2026-0001"></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+              <input type="checkbox" id="ex-sign" style="width:auto;cursor:pointer;">
+              <label style="margin:0;cursor:pointer;" for="ex-sign">Sign with SLATE_SIGN_KEY (server env var)</label>
+            </div>
+          </div>
+          <button class="btn btn-primary mt16" data-perm="export" onclick="doExport()">Generate Export Bundle</button>
+          <p class="forbidden-note" data-need-perm="export" style="display:none">Your role cannot generate exports.</p>
+          <div id="export-result" style="display:none;margin-top:16px;">
+            <div class="card" style="background:var(--bg);">
+              <div class="card-title">Bundle Ready</div>
+              <pre id="export-detail" style="font-size:11px;line-height:1.7;white-space:pre-wrap;"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt16">
+        <div class="section-title mb16">Role Reference</div>
+        <table>
+          <thead><tr><th>Role</th><th>Permissions</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Chief</strong></td><td>All operations</td></tr>
+            <tr><td><strong>Evidence Clerk</strong></td><td>Intake · Transfer · Hold set/release</td></tr>
+            <tr><td><strong>Tech Admin</strong></td><td>Node admin · Audit read · Status</td></tr>
+            <tr><td><strong>Officer</strong></td><td>Intake · Status</td></tr>
+            <tr><td><strong>Auditor</strong></td><td>Audit read · Status (read-only)</td></tr>
+          </tbody>
+        </table>
+        <p style="color:var(--muted);font-size:12px;margin-top:12px;">
+          Permissions are enforced server-side. Manage tokens with <code>slate token add|list|revoke</code>.
+        </p>
+      </div>
+    </div>
+
+    <!-- ══ DAILY LOGS ════════════════════════════════════════════════════ -->
+    <div class="tab" id="tab-logs">
+      <div class="card">
+        <div class="section-hdr">
+          <div class="section-title">Daily Evidence Log</div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="date" id="log-date" style="width:150px;">
+            <input id="log-case" placeholder="Filter by case…" style="width:160px;" oninput="loadLogs()">
+            <button class="btn btn-primary btn-sm" onclick="loadLogs()">Load</button>
+          </div>
+        </div>
+        <div id="log-events"><p style="color:var(--muted);">Select a date and click Load.</p></div>
+      </div>
+    </div>
+
+    <!-- ══ OFFICER VIEW ══════════════════════════════════════════════════ -->
+    <div class="tab" id="tab-officer">
+      <div class="card mb16">
+        <div class="section-hdr" style="margin-bottom:0">
+          <div class="section-title">Case Lookup</div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input id="off-case" placeholder="Case number…" style="width:200px;">
+            <button class="btn btn-primary btn-sm" onclick="loadOfficerCase()">Load</button>
+          </div>
+        </div>
+      </div>
+      <div id="officer-detail" style="display:none;">
+        <div class="grid-2">
+          <div class="card">
+            <div class="section-title mb16">Items — <span id="off-case-label" style="color:var(--accent);"></span></div>
+            <div id="off-items"></div>
+          </div>
+          <div class="card">
+            <div class="section-title mb16">Chain of Custody</div>
+            <div id="off-chain"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─── state ────────────────────────────────────────────────────────────────────
+let TOKEN = '';
+let MY_ROLE = '';
+let MY_NAME = '';
+let PERMS = {};
+let HOLD_ITEM = '';
+
+// ─── login ────────────────────────────────────────────────────────────────────
+window.onload = () => {
+  TOKEN = sessionStorage.getItem('slate_token') || '';
+  if (TOKEN) bootApp();
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') doLogin();
+});
+
+function doLogin() {
+  TOKEN = document.getElementById('token-input').value.trim();
+  if (!TOKEN) return;
+  api('/api/whoami').then(me => {
+    sessionStorage.setItem('slate_token', TOKEN);
+    applyWhoami(me);
+    showApp();
+  }).catch(() => {
+    document.getElementById('login-error').textContent = 'Invalid token or server unreachable.';
+    TOKEN = '';
+  });
+}
+
+function applyWhoami(me) {
+  MY_ROLE = me.role;
+  MY_NAME = me.name;
+  PERMS = me.permissions || {};
+
+  // Header user badge
+  const badge = document.getElementById('user-badge');
+  badge.innerHTML = `${MY_NAME}<span class="role-chip role-${MY_ROLE}">${MY_ROLE.replace('_', ' ')}</span>`;
+
+  // Hide nav tabs the role can't use
+  const tabPerms = { chief: 'status', evidence: 'intake', admin: 'node:admin', logs: 'audit:read', officer: 'status' };
+  document.querySelectorAll('nav button[data-tab]').forEach(btn => {
+    const needed = tabPerms[btn.dataset.tab];
+    if (needed && !PERMS[needed]) btn.setAttribute('data-hidden', '1');
+  });
+
+  // Hide action buttons/notes based on permissions
+  document.querySelectorAll('[data-perm]').forEach(el => {
+    if (!PERMS[el.dataset.perm]) el.style.display = 'none';
+  });
+  document.querySelectorAll('[data-need-perm]').forEach(el => {
+    if (!PERMS[el.dataset.needPerm]) el.style.display = 'block';
+  });
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  loadChief();
+  loadItems();
+  document.getElementById('log-date').value = todayStr();
+  setInterval(loadChief, 30000);
+}
+
+// ─── navigation ───────────────────────────────────────────────────────────────
+const TABS = ['chief', 'evidence', 'admin', 'logs', 'officer'];
+function switchTab(name) {
+  TABS.forEach(t => document.getElementById('tab-' + t).classList.toggle('active', t === name));
+  document.querySelectorAll('nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  if (name === 'chief')    loadChief();
+  if (name === 'evidence') loadItems();
+  if (name === 'admin')    loadAdminStatus();
+  if (name === 'logs')     { document.getElementById('log-date').value = todayStr(); loadLogs(); }
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+function api(path, opts = {}) {
+  const headers = { 'Authorization': 'Bearer ' + TOKEN, ...(opts.headers || {}) };
+  return fetch(path, { ...opts, headers }).then(r => {
+    if (!r.ok) return r.text().then(t => Promise.reject(t || r.statusText));
+    return r.json();
+  });
+}
+function post(path, body) {
+  return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+// ─── Chief ────────────────────────────────────────────────────────────────────
+function loadChief() {
+  Promise.all([api('/api/status'), api('/api/events')]).then(([st, evs]) => {
+    document.getElementById('s-items').textContent = st.item_count ?? '—';
+    document.getElementById('s-holds').textContent = st.hold_count ?? '—';
+    document.getElementById('s-log').textContent   = st.log_entries ?? '—';
+    document.getElementById('s-node').textContent  = st.node_id || '—';
+    document.getElementById('s-dept').textContent  = st.department || '';
+    document.getElementById('node-info').textContent = `${st.node_id || ''} · ${st.department || ''}`;
+    const recent = (evs || []).slice(-20).reverse();
+    const el = document.getElementById('chief-events');
+    el.innerHTML = recent.length ? recent.map(evRow).join('') : '<p style="color:var(--muted);">No events yet.</p>';
+  }).catch(console.error);
+}
+
+// ─── Items ────────────────────────────────────────────────────────────────────
+function loadItems() {
+  const cf = document.getElementById('ev-filter')?.value.trim() || '';
+  api('/api/items' + (cf ? '?case=' + enc(cf) : '')).then(items => {
+    const tb = document.getElementById('items-body');
+    if (!items?.length) {
+      tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px;">No items found.</td></tr>';
+      return;
+    }
+    tb.innerHTML = items.map(it => `
+      <tr>
+        <td class="mono">${it.id}</td>
+        <td>${it.case_number}</td>
+        <td>${it.category}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.description}</td>
+        <td>${statusBadge(it.status)}</td>
+        <td>${it.legal_hold ? '<span class="badge badge-hold">HOLD</span>' : '—'}</td>
+        <td>${it.current_node || '—'}</td>
+        <td>${PERMS['hold:set'] || PERMS['hold:release'] ?
+          `<button class="btn btn-ghost btn-sm" onclick="openHoldPanel('${it.id}')">Hold</button>` : ''}</td>
+      </tr>`).join('');
+  }).catch(console.error);
+}
+
+// ─── Intake ───────────────────────────────────────────────────────────────────
+function doIntake() {
+  const body = { case_number: g('i-case'), category: g('i-cat'), description: g('i-desc'), node: g('i-node') };
+  if (!body.case_number || !body.description) { msg('intake-msg', 'err', 'Case number and description required.'); return; }
+  post('/api/intake', body).then(item => {
+    msg('intake-msg', 'ok', 'Intake recorded: ' + item.id);
+    ['i-case','i-desc','i-node'].forEach(id => document.getElementById(id).value = '');
+    loadItems();
+  }).catch(e => msg('intake-msg', 'err', e));
+}
+
+// ─── Transfer ─────────────────────────────────────────────────────────────────
+function doTransfer() {
+  const body = { item_id: g('t-item'), from_node: g('t-from'), to_node: g('t-to'), notes: g('t-notes') };
+  if (!body.item_id || !body.to_node) { msg('transfer-msg', 'err', 'Item ID and to-node required.'); return; }
+  post('/api/transfer', body).then(() => {
+    msg('transfer-msg', 'ok', 'Transfer recorded for ' + body.item_id);
+    loadItems();
+  }).catch(e => msg('transfer-msg', 'err', e));
+}
+
+// ─── Hold panel ───────────────────────────────────────────────────────────────
+function openHoldPanel(id) {
+  HOLD_ITEM = id;
+  document.getElementById('hold-item-id').textContent = id;
+  document.getElementById('hold-panel').style.display = 'block';
+  document.getElementById('hold-msg').innerHTML = '';
+  document.getElementById('hold-panel').scrollIntoView({ behavior: 'smooth' });
+}
+function closeHoldPanel() { document.getElementById('hold-panel').style.display = 'none'; HOLD_ITEM = ''; }
+function doHoldSet() {
+  const reason = g('h-reason');
+  if (!reason) { msg('hold-msg','err','Reason required.'); return; }
+  post('/api/hold/set', { item_id: HOLD_ITEM, reason })
+    .then(() => { msg('hold-msg','ok','Hold set.'); loadItems(); })
+    .catch(e => msg('hold-msg','err',e));
+}
+function doHoldRelease() {
+  const notes = g('h-reason');
+  post('/api/hold/release', { item_id: HOLD_ITEM, notes })
+    .then(() => { msg('hold-msg','ok','Hold released.'); loadItems(); })
+    .catch(e => msg('hold-msg','err',e));
+}
+
+// ─── Admin / Export ───────────────────────────────────────────────────────────
+function loadAdminStatus() {
+  api('/api/status').then(s => {
+    document.getElementById('a-node').textContent = s.node_id || '—';
+    document.getElementById('a-dept').textContent = s.department || '—';
+    document.getElementById('a-ver').textContent  = s.version || '—';
+    document.getElementById('a-log').textContent  = s.log_entries ?? '—';
+    document.getElementById('a-last').textContent = s.last_event ? `${s.last_event} @ ${fmtTs(s.last_event_at)}` : '—';
+  });
+}
+function doExport() {
+  const caseNum = g('ex-case');
+  if (!caseNum) { msg('export-msg','err','Case number required.'); return; }
+  post('/api/export', { case_number: caseNum, sign: document.getElementById('ex-sign').checked })
+    .then(r => {
+      msg('export-msg','ok','Bundle generated.');
+      document.getElementById('export-result').style.display = 'block';
+      document.getElementById('export-detail').textContent =
+        `Bundle ID  : ${r.bundle_id}\nCase       : ${r.case_number}\nEntries    : ${r.entry_count}\nSHA-256    : ${r.sha256_chain}\nSigned     : ${r.signed ? 'yes' : 'no'}\nPath       : ${r.path}`;
+    }).catch(e => msg('export-msg','err',e));
+}
+
+// ─── Daily Logs ───────────────────────────────────────────────────────────────
+function loadLogs() {
+  const date = document.getElementById('log-date').value || todayStr();
+  const cf = document.getElementById('log-case')?.value.trim() || '';
+  let url = '/api/events?date=' + enc(date);
+  if (cf) url += '&case=' + enc(cf);
+  api(url).then(evs => {
+    const el = document.getElementById('log-events');
+    if (!evs?.length) { el.innerHTML = '<p style="color:var(--muted);">No events for this date/filter.</p>'; return; }
+    el.innerHTML = (evs || []).slice().reverse().map(evRow).join('');
+  }).catch(console.error);
+}
+
+// ─── Officer view ─────────────────────────────────────────────────────────────
+function loadOfficerCase() {
+  const cn = document.getElementById('off-case').value.trim();
+  if (!cn) return;
+  document.getElementById('off-case-label').textContent = cn;
+
+  Promise.all([
+    api('/api/items?case=' + enc(cn)),
+    api('/api/events?case=' + enc(cn)).catch(() => []),
+  ]).then(([items, evs]) => {
+    document.getElementById('officer-detail').style.display = 'block';
+
+    const iel = document.getElementById('off-items');
+    if (!items?.length) {
+      iel.innerHTML = '<p style="color:var(--muted);">No items for this case.</p>';
+    } else {
+      iel.innerHTML = '<table><thead><tr><th>ID</th><th>Category</th><th>Status</th><th>Hold</th></tr></thead><tbody>' +
+        items.map(it => `<tr>
+          <td class="mono" style="font-size:10px;">${it.id}</td>
+          <td>${it.category}</td>
+          <td>${statusBadge(it.status)}</td>
+          <td>${it.legal_hold ? '<span class="badge badge-hold">HOLD</span>' : '—'}</td>
+        </tr>`).join('') + '</tbody></table>';
+    }
+
+    const cel = document.getElementById('off-chain');
+    const pdEvs = (evs || []).filter(e => e.source === 'slate');
+    if (!pdEvs.length) {
+      cel.innerHTML = '<p style="color:var(--muted);">No custody events.</p>';
+    } else {
+      cel.innerHTML = pdEvs.map(e => {
+        const d = safeData(e);
+        const details = [
+          d.actor ? 'Actor: ' + d.actor : '',
+          d.from_node && d.to_node ? d.from_node + ' → ' + d.to_node : '',
+          d.notes || '',
+        ].filter(Boolean).join(' · ');
+        return `<div class="ev-row">
+          <div class="ev-time">${fmtTs(e.ts)}</div>
+          <div class="ev-body">
+            <div class="ev-name">${evLabel(e.event)}</div>
+            ${details ? '<div class="ev-detail">' + details + '</div>' : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }).catch(console.error);
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+function g(id) { return document.getElementById(id)?.value?.trim() || ''; }
+function enc(s) { return encodeURIComponent(s); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function fmtTs(ts) {
+  if (!ts) return '';
+  return new Date(ts).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+}
+function statusBadge(s) {
+  const m = { active: 'badge-active', destroyed: 'badge-destroyed' };
+  return `<span class="badge ${m[s] || 'badge-info'}">${s || '—'}</span>`;
+}
+function levelColor(l) {
+  if (l === 'WARN' || l === 'ERROR') return 'var(--warning)';
+  if (l === 'DEATH') return 'var(--danger)';
+  return 'var(--accent)';
+}
+const LABELS = {
+  'slate/intake': 'Intake', 'slate/transfer': 'Transfer', 'slate/access': 'Access',
+  'slate/hold_set': 'Hold Set', 'slate/hold_release': 'Hold Released',
+  'slate/export': 'Court Export', 'slate/destroyed': 'Destroyed', 'slate/init': 'Init',
+};
+function evLabel(ev) { return LABELS[ev] || ev; }
+function safeData(e) { try { return JSON.parse(e.data || '{}') || {}; } catch { return {}; } }
+function evRow(e) {
+  const d = safeData(e);
+  const parts = [
+    d.actor ? 'Actor: ' + d.actor : '',
+    d.item_id ? 'Item: ' + d.item_id : '',
+    d.case_number ? 'Case: ' + d.case_number : '',
+    d.from_node && d.to_node ? d.from_node + ' → ' + d.to_node : '',
+    d.notes || '',
+  ].filter(Boolean).join(' · ');
+  return `<div class="ev-row">
+    <div class="ev-time">${fmtTs(e.ts)}</div>
+    <div class="ev-level" style="color:${levelColor(e.level)}">${e.level}</div>
+    <div class="ev-body">
+      <div class="ev-name">${evLabel(e.event)}</div>
+      ${parts ? '<div class="ev-detail">' + parts + '</div>' : ''}
+    </div>
+  </div>`;
+}
+function msg(id, type, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<div class="msg msg-${type === 'ok' ? 'ok' : 'err'}">${text}</div>`;
+  setTimeout(() => { if (el) el.innerHTML = ''; }, 6000);
+}
+</script>
+</body>
+</html>
