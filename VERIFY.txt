@@ -1,0 +1,5 @@
+# SLATE — Secure Log Audit for Trace Evidence — Payload Checksums
+# Generated: 2026-05-13 10:41:40 UTC
+# DO NOT EDIT — regenerate with make-checksums.sh
+
+6166d2059a0ffbc4ec0e15d11d465bd09c2c80f7c2e96469ba9c65bbc64cc300  payload/default-soul.toml

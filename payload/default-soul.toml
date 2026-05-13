@@ -89,7 +89,7 @@ min_retention_days = 3650   # 10 years
 # =============================================================================
 
 [integrity]
-soul_hash         = ""       # populated by make-checksums.sh at build time
+soul_hash         = "bceb89f235dc2ce960c88a0e1711266df5e37bfc1a773edf561e6ade4a676c5e"       # populated by make-checksums.sh at build time
 verify_on_load    = true
 halt_on_mismatch  = true
 mismatch_message  = "SLATE soul file integrity check failed. Evidence system will not start. Contact your administrator."
@@ -101,6 +101,6 @@ mismatch_message  = "SLATE soul file integrity check failed. Evidence system wil
 [forge]
 forged_by    = "SGAIL"
 forge_method = "manual"
-forge_date   = ""       # populated by make-checksums.sh at build time
+forge_date   = "2026-05-13"       # populated by make-checksums.sh at build time
 forged_from  = "scratch"
 notes        = "Default soul for SLATE installations. Customize with department identity before deployment."
