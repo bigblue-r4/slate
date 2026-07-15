@@ -146,7 +146,7 @@ func computeChain(entries []store.Entry) string {
 	h := sha256.New()
 	for _, e := range entries {
 		b, _ := json.Marshal(e)
-		h.Write(b)
+		_, _ = h.Write(b)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
