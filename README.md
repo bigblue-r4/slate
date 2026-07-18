@@ -1,8 +1,25 @@
 # SLATE — Secure Log Audit for Trace Evidence
 
+[![CI](https://github.com/bigblue-r4/slate/actions/workflows/ci.yml/badge.svg)](https://github.com/bigblue-r4/slate/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/bigblue-r4/slate)](https://github.com/bigblue-r4/slate/releases)
+[![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
+
 Tamper-evident chain-of-custody evidence management for law enforcement.
 
 SLATE runs on a local department-controlled node. No cloud required. Encrypted, hash-chained audit log. Role-based access. Ed25519-signed court export bundles.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [CLI reference](#cli-reference)
+- [Multi-node LAN custody (v1.1)](#multi-node-lan-custody-v11)
+- [Roles](#roles)
+- [Data layout](#data-layout)
+- [Security model](#security-model)
+- [Environment variables](#environment-variables)
+- [Build from source](#build-from-source)
+- [License](#license)
 
 ## Quick start
 
