@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -127,6 +128,83 @@ func (s *Store) Close() error {
 
 // Path returns the log file path.
 func (s *Store) Path() string { return s.path }
+
+// ChainResult reports the outcome of a hash-chain integrity check.
+type ChainResult struct {
+	Entries int    `json:"entries"`  // number of records read before any break
+	OK      bool   `json:"ok"`       // true if the whole chain verified
+	BreakAt int    `json:"break_at"` // 1-based record index of the first break (0 if none)
+	Seq     uint64 `json:"seq"`      // seq of the record at the break (0 if none)
+	Reason  string `json:"reason"`   // human-readable cause of the break
+}
+
+// VerifyChain walks dir/witness.log record by record and checks tamper-evidence:
+//   - every record decrypts under key (else: ciphertext altered or truncated),
+//   - seq numbers are strictly 1,2,3,… (else: a record was inserted or removed),
+//   - each record's prev_hash equals SHA-256 of the previous record's plaintext
+//     (else: a record's contents were altered or a record was dropped).
+//
+// It reports the FIRST break found. A clean chain returns OK=true. Note: the
+// hash chain proves no partial edit; a key holder who rewrites the entire log
+// cannot be caught by the chain alone — that is what signed export bundles are
+// for.
+func VerifyChain(dir string, key []byte) (ChainResult, error) {
+	path := filepath.Join(dir, logFilename)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ChainResult{OK: true}, nil // empty log is trivially intact
+		}
+		return ChainResult{}, err
+	}
+	defer f.Close()
+
+	var (
+		count    int
+		prevHash string
+		wantSeq  uint64 = 1
+	)
+	for {
+		var lenBuf [4]byte
+		if _, err := io.ReadFull(f, lenBuf[:]); err != nil {
+			break // clean EOF
+		}
+		length := binary.BigEndian.Uint32(lenBuf[:])
+		if length == 0 || length > 64<<20 {
+			return ChainResult{Entries: count, BreakAt: count + 1, Reason: "invalid record frame length"}, nil
+		}
+		sealed := make([]byte, length)
+		if _, err := io.ReadFull(f, sealed); err != nil {
+			return ChainResult{Entries: count, BreakAt: count + 1, Reason: "truncated record (incomplete ciphertext)"}, nil
+		}
+		plain, err := encrypt.Open(sealed, key)
+		if err != nil {
+			return ChainResult{Entries: count, BreakAt: count + 1, Reason: "record failed to decrypt (ciphertext altered or wrong key)"}, nil
+		}
+		var e Entry
+		if err := json.Unmarshal(plain, &e); err != nil {
+			return ChainResult{Entries: count, BreakAt: count + 1, Reason: "record is not valid JSON after decryption"}, nil
+		}
+		if e.Seq != wantSeq {
+			return ChainResult{Entries: count, BreakAt: count + 1, Seq: e.Seq,
+				Reason: fmt.Sprintf("sequence break: expected seq %d, got %d (record inserted or removed)", wantSeq, e.Seq)}, nil
+		}
+		if e.PrevHash != prevHash {
+			return ChainResult{Entries: count, BreakAt: count + 1, Seq: e.Seq,
+				Reason: "prev_hash mismatch (a prior record was altered or dropped)"}, nil
+		}
+		// Advance chain over the canonical plaintext of THIS record.
+		canon, err := json.Marshal(e)
+		if err != nil {
+			return ChainResult{}, err
+		}
+		sum := sha256.Sum256(canon)
+		prevHash = hex.EncodeToString(sum[:])
+		wantSeq++
+		count++
+	}
+	return ChainResult{Entries: count, OK: true}, nil
+}
 
 // ReadAll decrypts and returns all entries from dir/witness.log.
 func ReadAll(dir string, key []byte) ([]Entry, error) {
