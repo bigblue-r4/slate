@@ -6,28 +6,26 @@
 <title>SLATE — Secure Log Audit for Trace Evidence</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --surface2: #1c2128;
-    --border: #30363d;
-    --accent: #2f81f7;
-    --accent-dim: #1f6feb;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --success: #3fb950;
-    --warning: #d29922;
-    --danger: #f85149;
-    --hold: #f0883e;
-    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2128; --border: #30363d;
+    --accent: #2f81f7; --accent-dim: #1f6feb; --text: #e6edf3; --muted: #8b949e;
+    --success: #3fb950; --warning: #d29922; --danger: #f85149; --hold: #f0883e;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f8fa; --surface: #ffffff; --surface2: #f0f3f6; --border: #d0d7de;
+    --accent: #0969da; --accent-dim: #0550ae; --text: #1f2328; --muted: #636c76;
+    --success: #1a7f37; --warning: #9a6700; --danger: #cf222e; --hold: #bc4c00;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+  a { color: var(--accent); }
+  button { font-family: var(--font); }
 
   /* Login */
   #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 36px; width: 340px; text-align: center; }
-  .login-card h1 { font-size: 22px; color: var(--accent); margin-bottom: 4px; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 36px; width: 360px; text-align: center; }
+  .login-card h1 { font-size: 22px; color: var(--accent); margin-bottom: 4px; letter-spacing: .5px; }
   .login-card .tagline { color: var(--muted); font-size: 12px; margin-bottom: 28px; }
   .login-card input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
   .login-card input:focus { outline: none; border-color: var(--accent); }
@@ -37,336 +35,269 @@
 
   /* App shell */
   #app { display: none; flex-direction: column; min-height: 100vh; }
-  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 20px; height: 50px; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; gap: 16px; height: 52px; }
   .brand { font-weight: 700; color: var(--accent); font-size: 15px; letter-spacing: .5px; }
   .brand-sub { color: var(--muted); font-size: 11px; }
   .header-info { color: var(--muted); font-size: 12px; }
   .user-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; }
   .role-chip { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-left: 6px; }
-  .role-chief         { background: rgba(47,129,247,.15); color: var(--accent); }
-  .role-evidence_clerk{ background: rgba(63,185,80,.15); color: var(--success); }
-  .role-tech_admin    { background: rgba(240,136,62,.15); color: var(--hold); }
-  .role-officer       { background: rgba(139,148,158,.15); color: var(--muted); }
-  .role-auditor       { background: rgba(210,153,34,.15); color: var(--warning); }
+  .role-chief { background: rgba(47,129,247,.15); color: var(--accent); }
+  .role-evidence_clerk { background: rgba(63,185,80,.15); color: var(--success); }
+  .role-tech_admin { background: rgba(240,136,62,.15); color: var(--hold); }
+  .role-officer { background: rgba(139,148,158,.15); color: var(--muted); }
+  .role-auditor { background: rgba(210,153,34,.15); color: var(--warning); }
   .spacer { flex: 1; }
-  .live-dot { width: 7px; height: 7px; background: var(--success); border-radius: 50%; }
+  .icon-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+  .icon-btn:hover { color: var(--text); }
+  .live { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .live-dot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .live-dot.poll { background: var(--warning); }
 
-  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; }
-  nav button { padding: 12px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-family: var(--font); }
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; }
+  nav button { padding: 12px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
   nav button.active { color: var(--text); border-bottom-color: var(--accent); }
   nav button:hover { color: var(--text); }
   nav button[data-hidden] { display: none; }
 
-  main { flex: 1; padding: 24px; max-width: 1280px; width: 100%; margin: 0 auto; }
-  .tab { display: none; }
-  .tab.active { display: block; }
+  main { flex: 1; padding: 22px; max-width: 1320px; width: 100%; margin: 0 auto; }
+  .view { display: none; }
+  .view.active { display: block; }
 
-  /* Cards & grids */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
-  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
-  .stat-num { font-size: 30px; font-weight: 700; }
-  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  .section-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .section-title { font-size: 14px; font-weight: 600; }
-  .mt16 { margin-top: 16px; }
-  .mb16 { margin-bottom: 16px; }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+  .stat .n { font-size: 26px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .stat.hold .n { color: var(--hold); }
 
-  /* Tables */
-  .tbl-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; padding: 9px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
-  td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--surface2); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
 
-  /* Badges */
-  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .badge-active    { background: rgba(63,185,80,.12); color: var(--success); }
-  .badge-hold      { background: rgba(240,136,62,.12); color: var(--hold); }
-  .badge-destroyed { background: rgba(248,81,73,.12); color: var(--danger); }
-  .badge-info      { background: rgba(47,129,247,.12); color: var(--accent); }
-  .badge-warn      { background: rgba(210,153,34,.12); color: var(--warning); }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+  .filters input, .filters select { padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px; }
+  .filters input:focus, .filters select:focus { outline: none; border-color: var(--accent); }
+  .filters .grow { flex: 1; min-width: 160px; }
 
-  /* Forms */
-  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
-  input[type=text], input[type=password], input[type=date], select, textarea {
-    width: 100%; padding: 8px 11px; background: var(--bg); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; font-size: 13px; font-family: var(--font);
-  }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  textarea { resize: vertical; min-height: 68px; }
-  .form-grid { display: grid; gap: 12px; }
-  .form-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-family: var(--font); }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: var(--accent-dim); }
-  .btn-warn { background: rgba(248,81,73,.12); color: var(--danger); border: 1px solid rgba(248,81,73,.25); }
-  .btn-warn:hover { background: rgba(248,81,73,.22); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
-  .btn-ghost { background: rgba(47,129,247,.1); color: var(--accent); }
-  button[disabled] { opacity: .35; cursor: not-allowed; }
+  .btn { padding: 7px 14px; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn:hover { background: var(--accent-dim); }
+  .btn.ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover { border-color: var(--accent); }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .btn.danger { background: var(--danger); }
 
-  /* Event log */
-  .ev-row { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
-  .ev-row:last-child { border-bottom: none; }
-  .ev-time { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 148px; white-space: nowrap; }
-  .ev-level { font-size: 11px; font-weight: 700; min-width: 38px; }
-  .ev-body .ev-name { font-size: 13px; }
-  .ev-body .ev-detail { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--surface2); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--muted); }
 
-  /* Mono */
-  .mono { font-family: var(--mono); font-size: 11px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .b-active { background: rgba(63,185,80,.15); color: var(--success); }
+  .b-transferred { background: rgba(47,129,247,.15); color: var(--accent); }
+  .b-destroyed { background: rgba(139,148,158,.15); color: var(--muted); }
+  .b-hold { background: rgba(240,136,62,.18); color: var(--hold); }
+  .b-cat { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 
-  /* Msg */
-  .msg { padding: 9px 13px; border-radius: 6px; margin-bottom: 14px; font-size: 13px; }
-  .msg-ok  { background: rgba(63,185,80,.1); color: var(--success); border: 1px solid rgba(63,185,80,.2); }
-  .msg-err { background: rgba(248,81,73,.1); color: var(--danger); border: 1px solid rgba(248,81,73,.2); }
+  .ev-type { font-weight: 600; }
+  .ev-intake { color: var(--success); } .ev-transfer { color: var(--accent); }
+  .ev-hold_set { color: var(--hold); } .ev-hold_release { color: var(--warning); }
+  .ev-export { color: var(--muted); } .ev-destroyed { color: var(--danger); }
 
-  /* Hold panel */
-  #hold-panel { display: none; }
-  .forbidden-note { color: var(--warning); font-size: 12px; font-style: italic; margin-top: 6px; }
+  /* Modal */
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 50; overflow-y: auto; }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 100%; max-width: 720px; padding: 22px; }
+  .modal h3 { font-size: 16px; margin-bottom: 4px; }
+  .modal .close { float: right; cursor: pointer; color: var(--muted); font-size: 20px; line-height: 1; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal input, .modal select, .modal textarea { width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px; }
+  .modal .row { display: flex; gap: 10px; }
+  .modal .row > * { flex: 1; }
+  .modal-actions { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; }
+  .form-error { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 16px; }
 
-  @media (max-width: 800px) {
-    .grid-4 { grid-template-columns: 1fr 1fr; }
-    .grid-2 { grid-template-columns: 1fr; }
-    .form-row { grid-template-columns: 1fr; }
-  }
+  /* Custody strip */
+  .custody { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; }
+  .node-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; font-size: 12px; font-family: var(--mono); }
+  .node-chip.origin { border-color: var(--success); }
+  .node-chip.current { border-color: var(--accent); color: var(--accent); }
+  .arrow { color: var(--muted); font-size: 14px; }
+
+  /* Timeline */
+  .timeline { list-style: none; position: relative; margin-left: 6px; padding-left: 18px; border-left: 2px solid var(--border); }
+  .timeline li { position: relative; padding: 0 0 14px 6px; }
+  .timeline li::before { content: ''; position: absolute; left: -25px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+  .timeline .t-time { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .timeline .t-main { margin-top: 1px; }
+  .timeline .t-notes { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  .empty { color: var(--muted); padding: 18px 0; text-align: center; font-size: 13px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--success); border-radius: 6px; padding: 12px 16px; font-size: 13px; z-index: 100; display: none; max-width: 340px; }
+  .toast.err { border-left-color: var(--danger); }
 </style>
 </head>
 <body>
 
-<!-- Login -->
+<!-- ── Login ─────────────────────────────────────────────────────────────── -->
 <div id="login-screen">
   <div class="login-card">
     <h1>SLATE</h1>
     <div class="tagline">Secure Log Audit for Trace Evidence</div>
-    <input type="password" id="token-input" placeholder="Access token" autocomplete="current-password">
-    <button onclick="doLogin()">Sign In</button>
+    <input type="password" id="token-input" placeholder="Access token" autocomplete="off">
+    <button onclick="doLogin()">Sign in</button>
     <div id="login-error"></div>
   </div>
 </div>
 
-<!-- App -->
+<!-- ── App ───────────────────────────────────────────────────────────────── -->
 <div id="app">
   <header>
-    <div>
-      <div class="brand">SLATE</div>
-      <div class="brand-sub">Secure Log Audit for Trace Evidence</div>
-    </div>
-    <div class="header-info" id="node-info">—</div>
+    <span class="brand">SLATE</span>
+    <span class="brand-sub" id="node-info"></span>
     <div class="spacer"></div>
-    <div class="user-badge" id="user-badge">—</div>
-    <div class="live-dot" title="Live"></div>
+    <div class="live"><span class="live-dot" id="live-dot"></span><span id="live-label">connecting…</span></div>
+    <button class="icon-btn" id="theme-btn" onclick="toggleTheme()">◐ Theme</button>
+    <span class="user-badge" id="user-badge"></span>
+    <button class="icon-btn" onclick="logout()">Sign out</button>
   </header>
 
-  <nav id="nav">
-    <button data-tab="chief"    class="active" onclick="switchTab('chief')">Chief</button>
-    <button data-tab="evidence" onclick="switchTab('evidence')">Evidence Room</button>
-    <button data-tab="admin"    onclick="switchTab('admin')">Tech / Admin</button>
-    <button data-tab="logs"     onclick="switchTab('logs')">Daily Logs</button>
-    <button data-tab="officer"  onclick="switchTab('officer')">Officer View</button>
+  <nav>
+    <button data-tab="overview" class="active" onclick="switchTab('overview')">Overview</button>
+    <button data-tab="evidence" onclick="switchTab('evidence')">Evidence</button>
+    <button data-tab="audit" data-need="audit:read" onclick="switchTab('audit')">Audit Log</button>
   </nav>
 
   <main>
-
-    <!-- ══ CHIEF ══════════════════════════════════════════════════════════ -->
-    <div class="tab active" id="tab-chief">
-      <div class="grid-4">
-        <div class="card"><div class="card-title">Evidence Items</div><div class="stat-num" id="s-items">—</div></div>
-        <div class="card"><div class="card-title">Legal Holds</div><div class="stat-num" id="s-holds" style="color:var(--hold)">—</div></div>
-        <div class="card"><div class="card-title">Log Entries</div><div class="stat-num" id="s-log">—</div></div>
-        <div class="card"><div class="card-title">Node / Dept</div><div class="stat-num" id="s-node" style="font-size:17px">—</div><div class="stat-sub" id="s-dept">—</div></div>
+    <!-- Overview -->
+    <section class="view active" id="view-overview">
+      <div class="stat-row">
+        <div class="stat"><div class="n" id="s-items">—</div><div class="l">Evidence items</div></div>
+        <div class="stat hold"><div class="n" id="s-holds">—</div><div class="l">On legal hold</div></div>
+        <div class="stat"><div class="n" id="s-log">—</div><div class="l">Audit log entries</div></div>
+        <div class="stat"><div class="n" id="s-node" style="font-size:16px;padding-top:6px">—</div><div class="l">Node</div></div>
       </div>
       <div class="card">
-        <div class="section-hdr">
-          <div class="section-title">Recent Activity</div>
-          <button class="btn btn-primary btn-sm" onclick="loadChief()">Refresh</button>
-        </div>
-        <div id="chief-events"><div style="color:var(--muted);padding:12px 0;">Loading…</div></div>
+        <h2>Recent activity <span class="sub" id="chain-note"></span></h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Seq</th><th>Time</th><th>Event</th><th>Item</th><th>Actor</th><th>Notes</th></tr></thead>
+          <tbody id="recent-events"></tbody>
+        </table></div>
       </div>
-    </div>
+    </section>
 
-    <!-- ══ EVIDENCE ROOM ══════════════════════════════════════════════════ -->
-    <div class="tab" id="tab-evidence">
-      <div class="grid-2 mb16">
-
-        <!-- Intake -->
-        <div class="card">
-          <div class="section-title mb16">Record Intake</div>
-          <div id="intake-msg"></div>
-          <div class="form-grid">
-            <div><label>Case Number *</label><input id="i-case" placeholder="CASE-2026-0001"></div>
-            <div><label>Category</label>
-              <select id="i-cat">
-                <option value="narcotics">Narcotics</option>
-                <option value="firearms">Firearms</option>
-                <option value="digital_media">Digital Media</option>
-                <option value="documents">Documents</option>
-                <option value="other" selected>Other</option>
-              </select>
-            </div>
-            <div><label>Description *</label><textarea id="i-desc" placeholder="Brief description of item"></textarea></div>
-            <div><label>Node / Location</label><input id="i-node" placeholder="evidence-room-1"></div>
-          </div>
-          <button class="btn btn-primary mt16" data-perm="intake" onclick="doIntake()">Record Intake</button>
-          <p class="forbidden-note" data-need-perm="intake" style="display:none">Your role cannot record intake.</p>
-        </div>
-
-        <!-- Transfer -->
-        <div class="card">
-          <div class="section-title mb16">Transfer Custody</div>
-          <div id="transfer-msg"></div>
-          <div class="form-grid">
-            <div><label>Item ID *</label><input id="t-item" placeholder="EV-YYYYMMDD-XXXXXXXX" class="mono"></div>
-            <div class="form-row">
-              <div><label>From Node</label><input id="t-from" placeholder="node-001"></div>
-              <div><label>To Node *</label><input id="t-to" placeholder="node-002"></div>
-            </div>
-            <div><label>Notes</label><input id="t-notes" placeholder="Reason for transfer"></div>
-          </div>
-          <button class="btn btn-primary mt16" data-perm="transfer" onclick="doTransfer()">Record Transfer</button>
-          <p class="forbidden-note" data-need-perm="transfer" style="display:none">Your role cannot record transfers.</p>
-        </div>
-      </div>
-
-      <!-- Items table -->
+    <!-- Evidence -->
+    <section class="view" id="view-evidence">
       <div class="card">
-        <div class="section-hdr">
-          <div class="section-title">Evidence Items</div>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <input id="ev-filter" placeholder="Filter by case…" style="width:180px;" oninput="loadItems()">
-            <button class="btn btn-primary btn-sm" onclick="loadItems()">Refresh</button>
-          </div>
+        <h2>Evidence
+          <span class="sub" id="ev-count"></span>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn small" id="intake-btn" data-need="intake" onclick="openIntake()">+ Intake</button>
+        </h2>
+        <div class="filters">
+          <input class="grow" id="f-text" placeholder="Search description / case / ID…" oninput="loadItems()">
+          <input id="f-case" placeholder="Case #" oninput="loadItems()">
+          <select id="f-cat" onchange="loadItems()">
+            <option value="">All categories</option>
+            <option value="narcotics">Narcotics</option><option value="firearms">Firearms</option>
+            <option value="digital_media">Digital media</option><option value="documents">Documents</option>
+            <option value="other">Other</option>
+          </select>
+          <select id="f-status" onchange="loadItems()">
+            <option value="">Any status</option><option value="active">Active</option>
+            <option value="transferred">Transferred</option><option value="destroyed">Destroyed</option>
+          </select>
+          <select id="f-hold" onchange="loadItems()">
+            <option value="">Any hold</option><option value="held">On hold</option><option value="released">Not held</option>
+          </select>
+          <button class="btn ghost small" onclick="exportItemsJSON()">Export JSON</button>
         </div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>Case</th><th>Category</th><th>Description</th><th>Status</th><th>Hold</th><th>Node</th><th></th></tr></thead>
-            <tbody id="items-body"><tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px;">Loading…</td></tr></tbody>
-          </table>
-        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Case</th><th>Category</th><th>Description</th><th>Status</th><th>Node</th><th>Created</th></tr></thead>
+          <tbody id="items-body"></tbody>
+        </table></div>
       </div>
+    </section>
 
-      <!-- Hold panel -->
-      <div class="card mt16" id="hold-panel">
-        <div class="section-title mb16">Legal Hold — <span id="hold-item-id" class="mono"></span></div>
-        <div id="hold-msg"></div>
-        <div class="form-row">
-          <div><label>Reason / Notes *</label><input id="h-reason" placeholder="Reason or case reference"></div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:14px;">
-          <button class="btn btn-primary" data-perm="hold:set" onclick="doHoldSet()">Set Hold</button>
-          <button class="btn btn-warn" data-perm="hold:release" onclick="doHoldRelease()">Release Hold</button>
-          <button class="btn btn-ghost" onclick="closeHoldPanel()">Cancel</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ══ TECH / ADMIN ═══════════════════════════════════════════════════ -->
-    <div class="tab" id="tab-admin">
-      <div class="grid-2">
-        <div class="card">
-          <div class="section-title mb16">System Identity</div>
-          <table>
-            <tr><td style="color:var(--muted);width:120px;">Node ID</td><td class="mono" id="a-node">—</td></tr>
-            <tr><td style="color:var(--muted);">Department</td><td id="a-dept">—</td></tr>
-            <tr><td style="color:var(--muted);">Version</td><td id="a-ver">—</td></tr>
-            <tr><td style="color:var(--muted);">Log entries</td><td id="a-log">—</td></tr>
-            <tr><td style="color:var(--muted);">Last event</td><td class="mono" style="font-size:11px;" id="a-last">—</td></tr>
-          </table>
-        </div>
-        <div class="card">
-          <div class="section-title mb16">Generate Court Export</div>
-          <div id="export-msg"></div>
-          <div class="form-grid">
-            <div><label>Case Number *</label><input id="ex-case" placeholder="CASE-2026-0001"></div>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-              <input type="checkbox" id="ex-sign" style="width:auto;cursor:pointer;">
-              <label style="margin:0;cursor:pointer;" for="ex-sign">Sign with SLATE_SIGN_KEY (server env var)</label>
-            </div>
-          </div>
-          <button class="btn btn-primary mt16" data-perm="export" onclick="doExport()">Generate Export Bundle</button>
-          <p class="forbidden-note" data-need-perm="export" style="display:none">Your role cannot generate exports.</p>
-          <div id="export-result" style="display:none;margin-top:16px;">
-            <div class="card" style="background:var(--bg);">
-              <div class="card-title">Bundle Ready</div>
-              <pre id="export-detail" style="font-size:11px;line-height:1.7;white-space:pre-wrap;"></pre>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card mt16">
-        <div class="section-title mb16">Role Reference</div>
-        <table>
-          <thead><tr><th>Role</th><th>Permissions</th></tr></thead>
-          <tbody>
-            <tr><td><strong>Chief</strong></td><td>All operations</td></tr>
-            <tr><td><strong>Evidence Clerk</strong></td><td>Intake · Transfer · Hold set/release</td></tr>
-            <tr><td><strong>Tech Admin</strong></td><td>Node admin · Audit read · Status</td></tr>
-            <tr><td><strong>Officer</strong></td><td>Intake · Status</td></tr>
-            <tr><td><strong>Auditor</strong></td><td>Audit read · Status (read-only)</td></tr>
-          </tbody>
-        </table>
-        <p style="color:var(--muted);font-size:12px;margin-top:12px;">
-          Permissions are enforced server-side. Manage tokens with <code>slate token add|list|revoke</code>.
-        </p>
-      </div>
-    </div>
-
-    <!-- ══ DAILY LOGS ════════════════════════════════════════════════════ -->
-    <div class="tab" id="tab-logs">
+    <!-- Audit -->
+    <section class="view" id="view-audit">
       <div class="card">
-        <div class="section-hdr">
-          <div class="section-title">Daily Evidence Log</div>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <input type="date" id="log-date" style="width:150px;">
-            <input id="log-case" placeholder="Filter by case…" style="width:160px;" oninput="loadLogs()">
-            <button class="btn btn-primary btn-sm" onclick="loadLogs()">Load</button>
-          </div>
+        <h2>Audit Log <span class="sub" id="audit-count"></span></h2>
+        <div class="filters">
+          <input id="a-case" placeholder="Case #" oninput="loadAudit()">
+          <input id="a-item" placeholder="Item ID" oninput="loadAudit()">
+          <select id="a-type" onchange="loadAudit()">
+            <option value="">All events</option><option value="intake">Intake</option>
+            <option value="transfer">Transfer</option><option value="access">Access</option>
+            <option value="hold_set">Hold set</option><option value="hold_release">Hold release</option>
+            <option value="export">Export</option><option value="destroyed">Destroyed</option>
+          </select>
+          <input id="a-role" placeholder="Role" oninput="loadAudit()">
+          <input id="a-actor" placeholder="Actor" oninput="loadAudit()">
+          <input id="a-from" type="date" onchange="loadAudit()" title="From date">
+          <input id="a-to" type="date" onchange="loadAudit()" title="To date">
+          <button class="btn ghost small" onclick="exportAuditJSON()">Export JSON</button>
         </div>
-        <div id="log-events"><p style="color:var(--muted);">Select a date and click Load.</p></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Seq</th><th>Time (UTC)</th><th>Event</th><th>Item</th><th>Case</th><th>Actor</th><th>Role</th><th>Notes</th></tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table></div>
       </div>
-    </div>
-
-    <!-- ══ OFFICER VIEW ══════════════════════════════════════════════════ -->
-    <div class="tab" id="tab-officer">
-      <div class="card mb16">
-        <div class="section-hdr" style="margin-bottom:0">
-          <div class="section-title">Case Lookup</div>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <input id="off-case" placeholder="Case number…" style="width:200px;">
-            <button class="btn btn-primary btn-sm" onclick="loadOfficerCase()">Load</button>
-          </div>
-        </div>
-      </div>
-      <div id="officer-detail" style="display:none;">
-        <div class="grid-2">
-          <div class="card">
-            <div class="section-title mb16">Items — <span id="off-case-label" style="color:var(--accent);"></span></div>
-            <div id="off-items"></div>
-          </div>
-          <div class="card">
-            <div class="section-title mb16">Chain of Custody</div>
-            <div id="off-chain"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
+    </section>
   </main>
 </div>
 
-<script>
-// ─── state ────────────────────────────────────────────────────────────────────
-let TOKEN = '';
-let MY_ROLE = '';
-let MY_NAME = '';
-let PERMS = {};
-let HOLD_ITEM = '';
+<!-- ── Item detail modal ─────────────────────────────────────────────────── -->
+<div class="modal-bg" id="item-modal">
+  <div class="modal">
+    <span class="close" onclick="closeModal('item-modal')">×</span>
+    <h3 id="im-id" class="mono"></h3>
+    <div class="muted" id="im-sub" style="font-size:12px;margin-bottom:14px"></div>
+    <div id="im-actions" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap"></div>
+    <h2 style="font-size:13px;color:var(--muted);margin-bottom:6px">CHAIN OF CUSTODY</h2>
+    <div class="custody" id="im-custody"></div>
+    <h2 style="font-size:13px;color:var(--muted);margin:8px 0 10px">TIMELINE</h2>
+    <ul class="timeline" id="im-timeline"></ul>
+  </div>
+</div>
 
-// ─── login ────────────────────────────────────────────────────────────────────
+<!-- ── Generic form modal ────────────────────────────────────────────────── -->
+<div class="modal-bg" id="form-modal">
+  <div class="modal">
+    <span class="close" onclick="closeModal('form-modal')">×</span>
+    <h3 id="fm-title"></h3>
+    <div id="fm-body"></div>
+    <div class="form-error" id="fm-error"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal('form-modal')">Cancel</button>
+      <button class="btn" id="fm-submit"></button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── state ──────────────────────────────────────────────────────────────────
+let TOKEN = '', MY_ROLE = '', MY_NAME = '', PERMS = {};
+let ITEMS_CACHE = [];
+let es = null, pollTimer = null;
+
+// ─── theme ──────────────────────────────────────────────────────────────────
+(function initTheme() {
+  const t = localStorage.getItem('slate_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', cur);
+  localStorage.setItem('slate_theme', cur);
+}
+
+// ─── login ──────────────────────────────────────────────────────────────────
 window.onload = () => {
   TOKEN = sessionStorage.getItem('slate_token') || '';
   if (TOKEN) bootApp();
@@ -374,292 +305,335 @@ window.onload = () => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') doLogin();
 });
-
 function doLogin() {
   TOKEN = document.getElementById('token-input').value.trim();
   if (!TOKEN) return;
-  api('/api/whoami').then(me => {
-    sessionStorage.setItem('slate_token', TOKEN);
-    applyWhoami(me);
-    showApp();
-  }).catch(() => {
-    document.getElementById('login-error').textContent = 'Invalid token or server unreachable.';
-    TOKEN = '';
-  });
+  api('/api/whoami').then(me => { sessionStorage.setItem('slate_token', TOKEN); bootApp(me); })
+    .catch(() => { document.getElementById('login-error').textContent = 'Invalid token or server unreachable.'; TOKEN = ''; });
+}
+function logout() {
+  sessionStorage.removeItem('slate_token');
+  if (es) es.close();
+  location.reload();
+}
+
+function bootApp(me) {
+  const boot = me ? Promise.resolve(me) : api('/api/whoami');
+  boot.then(applyWhoami).then(() => {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    refreshAll();
+    connectStream();
+  }).catch(err => showToast('Load failed: ' + err, true));
 }
 
 function applyWhoami(me) {
-  MY_ROLE = me.role;
-  MY_NAME = me.name;
-  PERMS = me.permissions || {};
-
-  // Header user badge
-  const badge = document.getElementById('user-badge');
-  badge.innerHTML = `${MY_NAME}<span class="role-chip role-${MY_ROLE}">${MY_ROLE.replace('_', ' ')}</span>`;
-
-  // Hide nav tabs the role can't use
-  const tabPerms = { chief: 'status', evidence: 'intake', admin: 'node:admin', logs: 'audit:read', officer: 'status' };
-  document.querySelectorAll('nav button[data-tab]').forEach(btn => {
-    const needed = tabPerms[btn.dataset.tab];
-    if (needed && !PERMS[needed]) btn.setAttribute('data-hidden', '1');
-  });
-
-  // Hide action buttons/notes based on permissions
-  document.querySelectorAll('[data-perm]').forEach(el => {
-    if (!PERMS[el.dataset.perm]) el.style.display = 'none';
-  });
-  document.querySelectorAll('[data-need-perm]').forEach(el => {
-    if (!PERMS[el.dataset.needPerm]) el.style.display = 'block';
+  MY_ROLE = me.role; MY_NAME = me.name; PERMS = me.permissions || {};
+  document.getElementById('user-badge').innerHTML =
+    `${esc(MY_NAME)}<span class="role-chip role-${esc(MY_ROLE)}">${esc(MY_ROLE.replace('_',' '))}</span>`;
+  // Gate nav + action buttons by permission.
+  document.querySelectorAll('[data-need]').forEach(el => {
+    if (!PERMS[el.dataset.need]) el.setAttribute('data-hidden', '1');
+    if (el.dataset.need && !PERMS[el.dataset.need] && el.tagName === 'BUTTON' && !el.dataset.tab) el.style.display = 'none';
   });
 }
 
-function showApp() {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  loadChief();
-  loadItems();
-  document.getElementById('log-date').value = todayStr();
-  setInterval(loadChief, 30000);
-}
-
-// ─── navigation ───────────────────────────────────────────────────────────────
-const TABS = ['chief', 'evidence', 'admin', 'logs', 'officer'];
-function switchTab(name) {
-  TABS.forEach(t => document.getElementById('tab-' + t).classList.toggle('active', t === name));
-  document.querySelectorAll('nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  if (name === 'chief')    loadChief();
-  if (name === 'evidence') loadItems();
-  if (name === 'admin')    loadAdminStatus();
-  if (name === 'logs')     { document.getElementById('log-date').value = todayStr(); loadLogs(); }
-}
-
-// ─── API ──────────────────────────────────────────────────────────────────────
+// ─── API (unwraps the slate.v1 envelope) ──────────────────────────────────────
 function api(path, opts = {}) {
   const headers = { 'Authorization': 'Bearer ' + TOKEN, ...(opts.headers || {}) };
-  return fetch(path, { ...opts, headers }).then(r => {
-    if (!r.ok) return r.text().then(t => Promise.reject(t || r.statusText));
-    return r.json();
+  return fetch(path, { ...opts, headers }).then(async r => {
+    let env = null;
+    try { env = await r.json(); } catch (e) { /* non-JSON */ }
+    if (!r.ok || (env && env.ok === false)) {
+      throw (env && env.error && env.error.message) || r.statusText || 'request failed';
+    }
+    return env ? env.data : null;
   });
 }
 function post(path, body) {
   return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }
 
-// ─── Chief ────────────────────────────────────────────────────────────────────
-function loadChief() {
-  Promise.all([api('/api/status'), api('/api/events')]).then(([st, evs]) => {
-    document.getElementById('s-items').textContent = st.item_count ?? '—';
-    document.getElementById('s-holds').textContent = st.hold_count ?? '—';
-    document.getElementById('s-log').textContent   = st.log_entries ?? '—';
-    document.getElementById('s-node').textContent  = st.node_id || '—';
-    document.getElementById('s-dept').textContent  = st.department || '';
-    document.getElementById('node-info').textContent = `${st.node_id || ''} · ${st.department || ''}`;
-    const recent = (evs || []).slice(-20).reverse();
-    const el = document.getElementById('chief-events');
-    el.innerHTML = recent.length ? recent.map(evRow).join('') : '<p style="color:var(--muted);">No events yet.</p>';
-  }).catch(console.error);
+// ─── navigation ───────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.querySelectorAll('nav button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  if (name === 'overview') loadOverview();
+  if (name === 'evidence') loadItems();
+  if (name === 'audit') loadAudit();
 }
 
-// ─── Items ────────────────────────────────────────────────────────────────────
-function loadItems() {
-  const cf = document.getElementById('ev-filter')?.value.trim() || '';
-  api('/api/items' + (cf ? '?case=' + enc(cf) : '')).then(items => {
-    const tb = document.getElementById('items-body');
-    if (!items?.length) {
-      tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px;">No items found.</td></tr>';
-      return;
-    }
-    tb.innerHTML = items.map(it => `
-      <tr>
-        <td class="mono">${it.id}</td>
-        <td>${it.case_number}</td>
-        <td>${it.category}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.description}</td>
-        <td>${statusBadge(it.status)}</td>
-        <td>${it.legal_hold ? '<span class="badge badge-hold">HOLD</span>' : '—'}</td>
-        <td>${it.current_node || '—'}</td>
-        <td>${PERMS['hold:set'] || PERMS['hold:release'] ?
-          `<button class="btn btn-ghost btn-sm" onclick="openHoldPanel('${it.id}')">Hold</button>` : ''}</td>
-      </tr>`).join('');
-  }).catch(console.error);
+function currentTab() {
+  const b = document.querySelector('nav button.active');
+  return b ? b.dataset.tab : 'overview';
 }
 
-// ─── Intake ───────────────────────────────────────────────────────────────────
-function doIntake() {
-  const body = { case_number: g('i-case'), category: g('i-cat'), description: g('i-desc'), node: g('i-node') };
-  if (!body.case_number || !body.description) { msg('intake-msg', 'err', 'Case number and description required.'); return; }
-  post('/api/intake', body).then(item => {
-    msg('intake-msg', 'ok', 'Intake recorded: ' + item.id);
-    ['i-case','i-desc','i-node'].forEach(id => document.getElementById(id).value = '');
-    loadItems();
-  }).catch(e => msg('intake-msg', 'err', e));
-}
+function refreshAll() { loadOverview(); loadItems(); if (PERMS['audit:read']) loadAudit(); }
 
-// ─── Transfer ─────────────────────────────────────────────────────────────────
-function doTransfer() {
-  const body = { item_id: g('t-item'), from_node: g('t-from'), to_node: g('t-to'), notes: g('t-notes') };
-  if (!body.item_id || !body.to_node) { msg('transfer-msg', 'err', 'Item ID and to-node required.'); return; }
-  post('/api/transfer', body).then(() => {
-    msg('transfer-msg', 'ok', 'Transfer recorded for ' + body.item_id);
-    loadItems();
-  }).catch(e => msg('transfer-msg', 'err', e));
-}
-
-// ─── Hold panel ───────────────────────────────────────────────────────────────
-function openHoldPanel(id) {
-  HOLD_ITEM = id;
-  document.getElementById('hold-item-id').textContent = id;
-  document.getElementById('hold-panel').style.display = 'block';
-  document.getElementById('hold-msg').innerHTML = '';
-  document.getElementById('hold-panel').scrollIntoView({ behavior: 'smooth' });
-}
-function closeHoldPanel() { document.getElementById('hold-panel').style.display = 'none'; HOLD_ITEM = ''; }
-function doHoldSet() {
-  const reason = g('h-reason');
-  if (!reason) { msg('hold-msg','err','Reason required.'); return; }
-  post('/api/hold/set', { item_id: HOLD_ITEM, reason })
-    .then(() => { msg('hold-msg','ok','Hold set.'); loadItems(); })
-    .catch(e => msg('hold-msg','err',e));
-}
-function doHoldRelease() {
-  const notes = g('h-reason');
-  post('/api/hold/release', { item_id: HOLD_ITEM, notes })
-    .then(() => { msg('hold-msg','ok','Hold released.'); loadItems(); })
-    .catch(e => msg('hold-msg','err',e));
-}
-
-// ─── Admin / Export ───────────────────────────────────────────────────────────
-function loadAdminStatus() {
+// ─── Overview ───────────────────────────────────────────────────────────────
+function loadOverview() {
   api('/api/status').then(s => {
-    document.getElementById('a-node').textContent = s.node_id || '—';
-    document.getElementById('a-dept').textContent = s.department || '—';
-    document.getElementById('a-ver').textContent  = s.version || '—';
-    document.getElementById('a-log').textContent  = s.log_entries ?? '—';
-    document.getElementById('a-last').textContent = s.last_event ? `${s.last_event} @ ${fmtTs(s.last_event_at)}` : '—';
+    document.getElementById('s-items').textContent = s.item_count ?? '—';
+    document.getElementById('s-holds').textContent = s.hold_count ?? '—';
+    document.getElementById('s-log').textContent = s.log_entries ?? '—';
+    document.getElementById('s-node').textContent = s.node_id || '—';
+    document.getElementById('node-info').textContent = `${s.node_id || ''} · ${s.department || ''}`;
+  }).catch(e => showToast(e, true));
+  if (!PERMS['audit:read']) { document.getElementById('recent-events').innerHTML = rowMsg(6, 'Audit read not permitted for this role.'); return; }
+  api('/api/events').then(evs => {
+    const recent = (evs || []).slice(-25).reverse();
+    document.getElementById('recent-events').innerHTML =
+      recent.length ? recent.map(eventRow).join('') : rowMsg(6, 'No events yet.');
+  }).catch(e => showToast(e, true));
+}
+
+function eventRow(e) {
+  const d = e.data || {};
+  const type = d.event_type || e.event || '';
+  return `<tr>
+    <td class="mono">${e.seq}</td>
+    <td class="mono">${fmtTime(d.timestamp || e.ts)}</td>
+    <td class="ev-type ev-${esc(type)}">${esc(type)}</td>
+    <td class="mono">${esc(d.item_id || '')}</td>
+    <td>${esc(d.actor || '')}</td>
+    <td class="muted">${esc(d.notes || '')}</td>
+  </tr>`;
+}
+
+// ─── Evidence ───────────────────────────────────────────────────────────────
+function loadItems() {
+  const q = new URLSearchParams();
+  const put = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) q.set(k, v); };
+  put('text', 'f-text'); put('case', 'f-case'); put('category', 'f-cat'); put('status', 'f-status'); put('hold', 'f-hold');
+  api('/api/items?' + q.toString()).then(items => {
+    ITEMS_CACHE = items || [];
+    document.getElementById('ev-count').textContent = `(${ITEMS_CACHE.length})`;
+    document.getElementById('items-body').innerHTML =
+      ITEMS_CACHE.length ? ITEMS_CACHE.map(itemRow).join('') : rowMsg(7, 'No matching evidence.');
+  }).catch(e => showToast(e, true));
+}
+
+function itemRow(it) {
+  const status = it.legal_hold
+    ? `<span class="badge b-hold">HOLD</span>`
+    : `<span class="badge b-${esc(it.status)}">${esc(it.status)}</span>`;
+  return `<tr class="clickable" onclick="openItem('${esc(it.id)}')">
+    <td class="mono">${esc(it.id)}</td>
+    <td>${esc(it.case_number)}</td>
+    <td><span class="badge b-cat">${esc(it.category)}</span></td>
+    <td>${esc(it.description)}</td>
+    <td>${status}</td>
+    <td class="mono muted">${esc(it.current_node || '—')}</td>
+    <td class="muted">${fmtTime(it.created_at)}</td>
+  </tr>`;
+}
+
+// ─── Item detail ──────────────────────────────────────────────────────────────
+function openItem(id) {
+  const it = ITEMS_CACHE.find(x => x.id === id);
+  document.getElementById('im-id').textContent = id;
+  document.getElementById('im-sub').textContent = it
+    ? `${it.case_number} · ${it.category} · ${it.description}` : '';
+  // Actions
+  const acts = [];
+  if (PERMS['transfer'] && it && it.status !== 'destroyed')
+    acts.push(`<button class="btn small" onclick="openTransfer('${esc(id)}')">Transfer</button>`);
+  if (it && it.legal_hold && PERMS['hold:release'])
+    acts.push(`<button class="btn small ghost" onclick="openHold('${esc(id)}','release')">Release hold</button>`);
+  else if (it && !it.legal_hold && PERMS['hold:set'])
+    acts.push(`<button class="btn small ghost" onclick="openHold('${esc(id)}','set')">Set hold</button>`);
+  if (PERMS['export'] && it)
+    acts.push(`<button class="btn small ghost" onclick="doExport('${esc(it.case_number)}')">Export case</button>`);
+  document.getElementById('im-actions').innerHTML = acts.join('');
+  openModal('item-modal');
+  if (!PERMS['audit:read']) {
+    document.getElementById('im-timeline').innerHTML = '<li class="muted">Audit read not permitted.</li>';
+    document.getElementById('im-custody').innerHTML = '';
+    return;
+  }
+  api('/api/events?item=' + encodeURIComponent(id)).then(evs => renderItemDetail(id, evs || []))
+    .catch(e => showToast(e, true));
+}
+
+function renderItemDetail(id, evs) {
+  // Custody strip: origin node + each transfer destination.
+  const nodes = [];
+  evs.forEach(e => {
+    const d = e.data || {};
+    if (d.event_type === 'intake' && d.to_node) nodes.push(d.to_node);
+    if (d.event_type === 'transfer') { if (d.from_node && !nodes.length) nodes.push(d.from_node); if (d.to_node) nodes.push(d.to_node); }
   });
-}
-function doExport() {
-  const caseNum = g('ex-case');
-  if (!caseNum) { msg('export-msg','err','Case number required.'); return; }
-  post('/api/export', { case_number: caseNum, sign: document.getElementById('ex-sign').checked })
-    .then(r => {
-      msg('export-msg','ok','Bundle generated.');
-      document.getElementById('export-result').style.display = 'block';
-      document.getElementById('export-detail').textContent =
-        `Bundle ID  : ${r.bundle_id}\nCase       : ${r.case_number}\nEntries    : ${r.entry_count}\nSHA-256    : ${r.sha256_chain}\nSigned     : ${r.signed ? 'yes' : 'no'}\nPath       : ${r.path}`;
-    }).catch(e => msg('export-msg','err',e));
+  const uniqSeq = nodes.filter((n, i) => i === 0 || n !== nodes[i - 1]);
+  const strip = uniqSeq.length
+    ? uniqSeq.map((n, i) => {
+        const cls = i === 0 ? 'origin' : (i === uniqSeq.length - 1 ? 'current' : '');
+        return `<span class="node-chip ${cls}">${esc(n)}</span>` + (i < uniqSeq.length - 1 ? '<span class="arrow">→</span>' : '');
+      }).join('')
+    : '<span class="muted">No custody movement recorded.</span>';
+  document.getElementById('im-custody').innerHTML = strip;
+
+  document.getElementById('im-timeline').innerHTML = evs.length
+    ? evs.slice().reverse().map(e => {
+        const d = e.data || {};
+        const t = d.event_type || e.event;
+        let line = `<span class="ev-type ev-${esc(t)}">${esc(t)}</span>`;
+        if (d.from_node || d.to_node) line += ` <span class="muted">${esc(d.from_node || '?')} → ${esc(d.to_node || '?')}</span>`;
+        if (d.actor) line += ` <span class="muted">by ${esc(d.actor)}${d.actor_role ? ' (' + esc(d.actor_role) + ')' : ''}</span>`;
+        return `<li>
+          <div class="t-time">${fmtTime(d.timestamp || e.ts)} · seq ${e.seq}</div>
+          <div class="t-main">${line}</div>
+          ${d.notes ? `<div class="t-notes">${esc(d.notes)}</div>` : ''}
+          ${d.bundle_ref ? `<div class="t-notes">bundle ${esc(d.bundle_ref)}</div>` : ''}
+        </li>`;
+      }).join('')
+    : '<li class="muted">No events for this item.</li>';
 }
 
-// ─── Daily Logs ───────────────────────────────────────────────────────────────
-function loadLogs() {
-  const date = document.getElementById('log-date').value || todayStr();
-  const cf = document.getElementById('log-case')?.value.trim() || '';
-  let url = '/api/events?date=' + enc(date);
-  if (cf) url += '&case=' + enc(cf);
-  api(url).then(evs => {
-    const el = document.getElementById('log-events');
-    if (!evs?.length) { el.innerHTML = '<p style="color:var(--muted);">No events for this date/filter.</p>'; return; }
-    el.innerHTML = (evs || []).slice().reverse().map(evRow).join('');
-  }).catch(console.error);
+// ─── Audit ──────────────────────────────────────────────────────────────────
+function loadAudit() {
+  if (!PERMS['audit:read']) { document.getElementById('audit-body').innerHTML = rowMsg(8, 'Not permitted.'); return; }
+  const q = new URLSearchParams();
+  const put = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) q.set(k, v); };
+  put('case', 'a-case'); put('item', 'a-item'); put('type', 'a-type'); put('role', 'a-role');
+  put('actor', 'a-actor'); put('from', 'a-from'); put('to', 'a-to');
+  api('/api/events?' + q.toString()).then(evs => {
+    evs = (evs || []).slice().reverse();
+    document.getElementById('audit-count').textContent = `(${evs.length})`;
+    document.getElementById('audit-body').innerHTML =
+      evs.length ? evs.map(auditRow).join('') : rowMsg(8, 'No matching events.');
+  }).catch(e => showToast(e, true));
+}
+function auditRow(e) {
+  const d = e.data || {};
+  const t = d.event_type || e.event || '';
+  return `<tr>
+    <td class="mono">${e.seq}</td>
+    <td class="mono">${fmtTime(d.timestamp || e.ts)}</td>
+    <td class="ev-type ev-${esc(t)}">${esc(t)}</td>
+    <td class="mono">${esc(d.item_id || '')}</td>
+    <td>${esc(d.case_number || '')}</td>
+    <td>${esc(d.actor || '')}</td>
+    <td class="muted">${esc(d.actor_role || '')}</td>
+    <td class="muted">${esc(d.notes || '')}</td>
+  </tr>`;
 }
 
-// ─── Officer view ─────────────────────────────────────────────────────────────
-function loadOfficerCase() {
-  const cn = document.getElementById('off-case').value.trim();
-  if (!cn) return;
-  document.getElementById('off-case-label').textContent = cn;
-
-  Promise.all([
-    api('/api/items?case=' + enc(cn)),
-    api('/api/events?case=' + enc(cn)).catch(() => []),
-  ]).then(([items, evs]) => {
-    document.getElementById('officer-detail').style.display = 'block';
-
-    const iel = document.getElementById('off-items');
-    if (!items?.length) {
-      iel.innerHTML = '<p style="color:var(--muted);">No items for this case.</p>';
-    } else {
-      iel.innerHTML = '<table><thead><tr><th>ID</th><th>Category</th><th>Status</th><th>Hold</th></tr></thead><tbody>' +
-        items.map(it => `<tr>
-          <td class="mono" style="font-size:10px;">${it.id}</td>
-          <td>${it.category}</td>
-          <td>${statusBadge(it.status)}</td>
-          <td>${it.legal_hold ? '<span class="badge badge-hold">HOLD</span>' : '—'}</td>
-        </tr>`).join('') + '</tbody></table>';
-    }
-
-    const cel = document.getElementById('off-chain');
-    const pdEvs = (evs || []).filter(e => e.source === 'slate');
-    if (!pdEvs.length) {
-      cel.innerHTML = '<p style="color:var(--muted);">No custody events.</p>';
-    } else {
-      cel.innerHTML = pdEvs.map(e => {
-        const d = safeData(e);
-        const details = [
-          d.actor ? 'Actor: ' + d.actor : '',
-          d.from_node && d.to_node ? d.from_node + ' → ' + d.to_node : '',
-          d.notes || '',
-        ].filter(Boolean).join(' · ');
-        return `<div class="ev-row">
-          <div class="ev-time">${fmtTs(e.ts)}</div>
-          <div class="ev-body">
-            <div class="ev-name">${evLabel(e.event)}</div>
-            ${details ? '<div class="ev-detail">' + details + '</div>' : ''}
-          </div>
-        </div>`;
-      }).join('');
-    }
-  }).catch(console.error);
+// ─── Actions ──────────────────────────────────────────────────────────────────
+function openIntake() {
+  document.getElementById('fm-title').textContent = 'Record intake';
+  document.getElementById('fm-body').innerHTML = `
+    <label>Case number</label><input id="in-case">
+    <label>Description</label><input id="in-desc">
+    <div class="row">
+      <div><label>Category</label><select id="in-cat">
+        <option value="other">Other</option><option value="narcotics">Narcotics</option>
+        <option value="firearms">Firearms</option><option value="digital_media">Digital media</option>
+        <option value="documents">Documents</option></select></div>
+      <div><label>Current node</label><input id="in-node"></div>
+    </div>`;
+  setSubmit('Record', () => post('/api/intake', {
+    case_number: val('in-case'), description: val('in-desc'), category: val('in-cat'), node: val('in-node')
+  }).then(item => { closeModal('form-modal'); showToast('Intake recorded: ' + item.id); }));
+  openModal('form-modal');
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-function g(id) { return document.getElementById(id)?.value?.trim() || ''; }
-function enc(s) { return encodeURIComponent(s); }
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function fmtTs(ts) {
-  if (!ts) return '';
-  return new Date(ts).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-}
-function statusBadge(s) {
-  const m = { active: 'badge-active', destroyed: 'badge-destroyed' };
-  return `<span class="badge ${m[s] || 'badge-info'}">${s || '—'}</span>`;
-}
-function levelColor(l) {
-  if (l === 'WARN' || l === 'ERROR') return 'var(--warning)';
-  if (l === 'DEATH') return 'var(--danger)';
-  return 'var(--accent)';
-}
-const LABELS = {
-  'slate/intake': 'Intake', 'slate/transfer': 'Transfer', 'slate/access': 'Access',
-  'slate/hold_set': 'Hold Set', 'slate/hold_release': 'Hold Released',
-  'slate/export': 'Court Export', 'slate/destroyed': 'Destroyed', 'slate/init': 'Init',
-};
-function evLabel(ev) { return LABELS[ev] || ev; }
-function safeData(e) { try { return JSON.parse(e.data || '{}') || {}; } catch { return {}; } }
-function evRow(e) {
-  const d = safeData(e);
-  const parts = [
-    d.actor ? 'Actor: ' + d.actor : '',
-    d.item_id ? 'Item: ' + d.item_id : '',
-    d.case_number ? 'Case: ' + d.case_number : '',
-    d.from_node && d.to_node ? d.from_node + ' → ' + d.to_node : '',
-    d.notes || '',
-  ].filter(Boolean).join(' · ');
-  return `<div class="ev-row">
-    <div class="ev-time">${fmtTs(e.ts)}</div>
-    <div class="ev-level" style="color:${levelColor(e.level)}">${e.level}</div>
-    <div class="ev-body">
-      <div class="ev-name">${evLabel(e.event)}</div>
-      ${parts ? '<div class="ev-detail">' + parts + '</div>' : ''}
+function openTransfer(id) {
+  const it = ITEMS_CACHE.find(x => x.id === id) || {};
+  document.getElementById('fm-title').textContent = 'Transfer custody';
+  document.getElementById('fm-body').innerHTML = `
+    <label>Item</label><input value="${esc(id)}" disabled>
+    <div class="row">
+      <div><label>From node</label><input id="tr-from" value="${esc(it.current_node || '')}"></div>
+      <div><label>To node</label><input id="tr-to"></div>
     </div>
-  </div>`;
+    <label>Notes</label><input id="tr-notes">`;
+  setSubmit('Transfer', () => post('/api/transfer', {
+    item_id: id, from_node: val('tr-from'), to_node: val('tr-to'), notes: val('tr-notes')
+  }).then(() => { closeModal('form-modal'); closeModal('item-modal'); showToast('Transfer recorded.'); }));
+  openModal('form-modal');
 }
-function msg(id, type, text) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.innerHTML = `<div class="msg msg-${type === 'ok' ? 'ok' : 'err'}">${text}</div>`;
-  setTimeout(() => { if (el) el.innerHTML = ''; }, 6000);
+function openHold(id, action) {
+  const set = action === 'set';
+  document.getElementById('fm-title').textContent = set ? 'Set legal hold' : 'Release legal hold';
+  document.getElementById('fm-body').innerHTML = set
+    ? `<label>Item</label><input value="${esc(id)}" disabled><label>Reason</label><input id="hd-reason">`
+    : `<label>Item</label><input value="${esc(id)}" disabled><label>Notes</label><input id="hd-notes">`;
+  setSubmit(set ? 'Set hold' : 'Release', () => {
+    const path = set ? '/api/hold/set' : '/api/hold/release';
+    const body = set ? { item_id: id, reason: val('hd-reason') } : { item_id: id, notes: val('hd-notes') };
+    return post(path, body).then(() => { closeModal('form-modal'); closeModal('item-modal'); showToast('Hold updated.'); });
+  });
+  openModal('form-modal');
 }
+function doExport(caseNum) {
+  post('/api/export', { case_number: caseNum, sign: false })
+    .then(r => showToast(`Exported ${r.entry_count} entries → ${r.bundle_id}`))
+    .catch(e => showToast(e, true));
+}
+
+function setSubmit(label, fn) {
+  const btn = document.getElementById('fm-submit');
+  btn.textContent = label;
+  document.getElementById('fm-error').textContent = '';
+  btn.onclick = () => { fn().catch(e => { document.getElementById('fm-error').textContent = e; }); };
+}
+
+// ─── client-side JSON export ──────────────────────────────────────────────────
+function download(name, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function exportItemsJSON() { download('slate-evidence.json', ITEMS_CACHE); }
+function exportAuditJSON() {
+  const q = new URLSearchParams();
+  const put = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) q.set(k, v); };
+  put('case','a-case'); put('item','a-item'); put('type','a-type'); put('role','a-role');
+  put('actor','a-actor'); put('from','a-from'); put('to','a-to');
+  api('/api/events?' + q.toString()).then(evs => download('slate-audit.json', evs || []));
+}
+
+// ─── SSE with poll fallback ────────────────────────────────────────────────────
+function connectStream() {
+  if (es) es.close();
+  setLive('connecting…', '');
+  try {
+    es = new EventSource('/api/stream?token=' + encodeURIComponent(TOKEN));
+  } catch (e) { startPoll(); return; }
+  es.addEventListener('ready', () => { setLive('live', 'on'); stopPoll(); });
+  es.addEventListener('change', () => refreshCurrent());
+  es.addEventListener('ping', () => setLive('live', 'on'));
+  es.onerror = () => { setLive('polling', 'poll'); es.close(); es = null; startPoll(); setTimeout(connectStream, 8000); };
+}
+function startPoll() { if (pollTimer) return; setLive('polling', 'poll'); pollTimer = setInterval(refreshCurrent, 15000); }
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function refreshCurrent() {
+  const t = currentTab();
+  if (t === 'overview') loadOverview();
+  else if (t === 'evidence') loadItems();
+  else if (t === 'audit') loadAudit();
+}
+function setLive(label, cls) {
+  document.getElementById('live-label').textContent = label;
+  document.getElementById('live-dot').className = 'live-dot ' + cls;
+}
+
+// ─── modal + util ──────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-bg').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
+
+let toastTimer = null;
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+function val(id) { return document.getElementById(id).value.trim(); }
+function rowMsg(cols, msg) { return `<tr><td colspan="${cols}" class="empty">${esc(msg)}</td></tr>`; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function fmtTime(t) { if (!t) return ''; const d = new Date(t); return isNaN(d) ? esc(t) : d.toISOString().replace('T',' ').slice(0,19); }
 </script>
 </body>
 </html>

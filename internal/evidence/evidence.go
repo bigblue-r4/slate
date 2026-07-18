@@ -34,11 +34,13 @@ type CustodyEvent struct {
 	CaseNumber string    `json:"case_number"`
 	EventType  string    `json:"event_type"` // intake, transfer, access, hold_set, hold_release, export, destroyed
 	Timestamp  time.Time `json:"timestamp"`
-	Actor      string    `json:"actor"` // always from the authenticated token name
+	Actor      string    `json:"actor"`                // always from the authenticated token name
+	ActorRole  string    `json:"actor_role,omitempty"` // role bound to the token (v1.1+; empty on pre-v1.1 events)
 	FromNode   string    `json:"from_node,omitempty"`
 	ToNode     string    `json:"to_node,omitempty"`
 	Notes      string    `json:"notes,omitempty"`
 	ExportRef  string    `json:"export_ref,omitempty"`
+	BundleRef  string    `json:"bundle_ref,omitempty"` // inter-node transfer bundle ID (v1.1+)
 }
 
 const catalogFile = "items.json"
@@ -79,7 +81,7 @@ func (ev *Store) Close() error {
 }
 
 // RecordIntake creates a new evidence item and logs the intake event.
-func (ev *Store) RecordIntake(item *Item, actor string) error {
+func (ev *Store) RecordIntake(item *Item, actor, actorRole string) error {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 
@@ -102,13 +104,14 @@ func (ev *Store) RecordIntake(item *Item, actor string) error {
 		EventType:  "intake",
 		Timestamp:  item.CreatedAt,
 		Actor:      actor,
+		ActorRole:  actorRole,
 		ToNode:     item.CurrentNode,
 		Notes:      item.Description,
 	})
 }
 
 // RecordTransfer transfers an item to a new node. Blocked if item is under legal hold.
-func (ev *Store) RecordTransfer(itemID, actor, fromNode, toNode, notes string) error {
+func (ev *Store) RecordTransfer(itemID, actor, actorRole, fromNode, toNode, notes string) error {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 
@@ -130,6 +133,7 @@ func (ev *Store) RecordTransfer(itemID, actor, fromNode, toNode, notes string) e
 		EventType:  "transfer",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		FromNode:   fromNode,
 		ToNode:     toNode,
 		Notes:      notes,
@@ -137,7 +141,7 @@ func (ev *Store) RecordTransfer(itemID, actor, fromNode, toNode, notes string) e
 }
 
 // RecordAccess logs that an item was examined.
-func (ev *Store) RecordAccess(itemID, actor, notes string) error {
+func (ev *Store) RecordAccess(itemID, actor, actorRole, notes string) error {
 	ev.mu.RLock()
 	caseNum := ev.caseNumberFor(itemID)
 	ev.mu.RUnlock()
@@ -148,12 +152,13 @@ func (ev *Store) RecordAccess(itemID, actor, notes string) error {
 		EventType:  "access",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		Notes:      notes,
 	})
 }
 
 // SetLegalHold places a legal hold on an item.
-func (ev *Store) SetLegalHold(itemID, actor, reason string) error {
+func (ev *Store) SetLegalHold(itemID, actor, actorRole, reason string) error {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 
@@ -173,12 +178,13 @@ func (ev *Store) SetLegalHold(itemID, actor, reason string) error {
 		EventType:  "hold_set",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		Notes:      reason,
 	})
 }
 
 // ReleaseLegalHold removes a legal hold from an item.
-func (ev *Store) ReleaseLegalHold(itemID, actor, notes string) error {
+func (ev *Store) ReleaseLegalHold(itemID, actor, actorRole, notes string) error {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 
@@ -198,12 +204,13 @@ func (ev *Store) ReleaseLegalHold(itemID, actor, notes string) error {
 		EventType:  "hold_release",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		Notes:      notes,
 	})
 }
 
 // RecordExport logs that a court export bundle was generated.
-func (ev *Store) RecordExport(itemID, actor, exportRef string) error {
+func (ev *Store) RecordExport(itemID, actor, actorRole, exportRef string) error {
 	ev.mu.RLock()
 	caseNum := ev.caseNumberFor(itemID)
 	ev.mu.RUnlock()
@@ -214,12 +221,13 @@ func (ev *Store) RecordExport(itemID, actor, exportRef string) error {
 		EventType:  "export",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		ExportRef:  exportRef,
 	})
 }
 
 // RecordDestroyed marks an item as destroyed. Blocked if item is under legal hold.
-func (ev *Store) RecordDestroyed(itemID, actor, notes string) error {
+func (ev *Store) RecordDestroyed(itemID, actor, actorRole, notes string) error {
 	ev.mu.Lock()
 	defer ev.mu.Unlock()
 
@@ -241,6 +249,7 @@ func (ev *Store) RecordDestroyed(itemID, actor, notes string) error {
 		EventType:  "destroyed",
 		Timestamp:  time.Now().UTC(),
 		Actor:      actor,
+		ActorRole:  actorRole,
 		Notes:      notes,
 	})
 }
@@ -279,6 +288,102 @@ func (ev *Store) GetItems(caseNumber string) []*Item {
 // GetAllEvents decrypts and returns all audit log entries.
 func (ev *Store) GetAllEvents() ([]store.Entry, error) {
 	return store.ReadAll(ev.dir, ev.key)
+}
+
+// VerifyChain checks the tamper-evident hash chain of the underlying log and
+// reports the first break, if any.
+func (ev *Store) VerifyChain() (store.ChainResult, error) {
+	return store.VerifyChain(ev.dir, ev.key)
+}
+
+// EventsForItem returns all audit log entries whose custody event references
+// itemID, in log order.
+func (ev *Store) EventsForItem(itemID string) ([]store.Entry, error) {
+	all, err := store.ReadAll(ev.dir, ev.key)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Entry
+	for _, e := range all {
+		if len(e.Data) == 0 {
+			continue
+		}
+		var ce CustodyEvent
+		if err := json.Unmarshal(e.Data, &ce); err != nil {
+			continue
+		}
+		if ce.ItemID == itemID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// AcceptIncomingTransfer records an item received from a peer node, preserving
+// the item's original ID so the custody chain is continuous across the handoff.
+// It refuses if an item with that ID already exists locally (replay / duplicate
+// protection). It logs a transfer event on THIS node citing the transfer bundle.
+func (ev *Store) AcceptIncomingTransfer(item *Item, actor, actorRole, fromNode, thisNode, bundleRef string) error {
+	ev.mu.Lock()
+	defer ev.mu.Unlock()
+
+	if _, exists := ev.items[item.ID]; exists {
+		return fmt.Errorf("item %s already exists on this node — refusing duplicate transfer", item.ID)
+	}
+	cp := *item
+	cp.CurrentNode = thisNode
+	cp.Status = "active"
+	cp.LegalHold = false
+	cp.HoldReason = ""
+	ev.items[cp.ID] = &cp
+	if err := ev.saveCatalog(); err != nil {
+		return err
+	}
+	return ev.log.Append("INFO", "slate/transfer_in", "slate", CustodyEvent{
+		ItemID:     cp.ID,
+		CaseNumber: cp.CaseNumber,
+		EventType:  "transfer",
+		Timestamp:  time.Now().UTC(),
+		Actor:      actor,
+		ActorRole:  actorRole,
+		FromNode:   fromNode,
+		ToNode:     thisNode,
+		BundleRef:  bundleRef,
+		Notes:      fmt.Sprintf("received from %s via bundle %s", fromNode, bundleRef),
+	})
+}
+
+// RecordOutgoingTransfer logs on THIS node that custody of an item was handed off
+// to a peer via a signed transfer bundle. Blocked if the item is under legal hold.
+func (ev *Store) RecordOutgoingTransfer(itemID, actor, actorRole, toNode, bundleRef, notes string) error {
+	ev.mu.Lock()
+	defer ev.mu.Unlock()
+
+	item, ok := ev.items[itemID]
+	if !ok {
+		return fmt.Errorf("item not found: %s", itemID)
+	}
+	if item.LegalHold {
+		return fmt.Errorf("item %s is under legal hold — release hold before transfer", itemID)
+	}
+	fromNode := item.CurrentNode
+	item.Status = "transferred"
+	item.CurrentNode = toNode
+	if err := ev.saveCatalog(); err != nil {
+		return err
+	}
+	return ev.log.Append("INFO", "slate/transfer_out", "slate", CustodyEvent{
+		ItemID:     itemID,
+		CaseNumber: item.CaseNumber,
+		EventType:  "transfer",
+		Timestamp:  time.Now().UTC(),
+		Actor:      actor,
+		ActorRole:  actorRole,
+		FromNode:   fromNode,
+		ToNode:     toNode,
+		BundleRef:  bundleRef,
+		Notes:      notes,
+	})
 }
 
 func (ev *Store) caseNumberFor(itemID string) string {
