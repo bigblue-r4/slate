@@ -70,10 +70,12 @@ func TestAnnouncementUnsignedRejected(t *testing.T) {
 func TestFingerprintStableAndDistinct(t *testing.T) {
 	_, pubA := newKey(t)
 	_, pubB := newKey(t)
-	if Fingerprint(pubA) != Fingerprint(pubA) {
+	fpA1 := Fingerprint(pubA)
+	fpA2 := Fingerprint(pubA)
+	if fpA1 != fpA2 {
 		t.Fatal("fingerprint is not stable")
 	}
-	if Fingerprint(pubA) == Fingerprint(pubB) {
+	if fpA1 == Fingerprint(pubB) {
 		t.Fatal("distinct keys produced the same fingerprint")
 	}
 	if Fingerprint("not-hex") != "invalid" {
