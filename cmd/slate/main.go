@@ -17,7 +17,9 @@
 //	slate token list
 //	slate token revoke TOKEN
 //	slate keygen
-//	slate serve      [--port PORT]
+//	slate peer discover [--for DUR]
+//	slate peer refresh  [--for DUR] [--dry-run]
+//	slate serve      [--port PORT] [--peer-listen HOST:PORT] [--announce]
 //	slate version
 package main
 
@@ -30,10 +32,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +47,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/bigblue-r4/slate/internal/apiwire"
+	"github.com/bigblue-r4/slate/internal/discovery"
 	"github.com/bigblue-r4/slate/internal/evidence"
 	slateexport "github.com/bigblue-r4/slate/internal/export"
 	"github.com/bigblue-r4/slate/internal/machid"
@@ -876,7 +881,7 @@ func runVerify() {
 
 func runPeer() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: slate peer <keygen|identity|add|list|remove|transfer> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: slate peer <keygen|identity|add|list|remove|transfer|discover|refresh> [flags]")
 		os.Exit(1)
 	}
 	switch os.Args[2] {
@@ -892,6 +897,10 @@ func runPeer() {
 		runPeerRemove()
 	case "transfer":
 		runPeerTransfer()
+	case "discover":
+		runPeerDiscover()
+	case "refresh":
+		runPeerRefresh()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown peer subcommand: %s\n", os.Args[2])
 		os.Exit(1)
@@ -1080,6 +1089,147 @@ func runPeerTransfer() {
 	fmt.Printf("  Events : %d custody record(s) sent\n", len(events))
 }
 
+// runPeerDiscover listens for signed presence beacons on the LAN and prints the
+// nodes it hears. It is READ-ONLY: discovery never enrolls or changes trust. The
+// fingerprint column is for out-of-band verification before running `peer add`.
+func runPeerDiscover() {
+	fs := flag.NewFlagSet("peer discover", flag.ExitOnError)
+	forDur := fs.Duration("for", 6*time.Second, "How long to listen for beacons")
+	group := fs.String("group", discovery.DefaultGroup, "Discovery multicast group")
+	port := fs.Int("discovery-port", discovery.DefaultPort, "Discovery multicast port")
+	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
+	_ = fs.Parse(os.Args[3:])
+
+	groupAddr := fmt.Sprintf("%s:%d", *group, *port)
+	if !*jsonOut {
+		fmt.Printf("Listening for SLATE peers on %s for %s …\n", groupAddr, *forDur)
+	}
+	found, err := discovery.Listen(context.Background(), groupAddr, *forDur)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("discover: %v", err))
+	}
+
+	// Cross-reference against the enrolled peer store so the operator can see, at
+	// a glance, who is new, who is enrolled, and whose address has drifted.
+	ps := mustOpenPeerStore()
+	type row struct {
+		discovery.Result
+		Status string `json:"status"` // new | enrolled | address-changed | key-mismatch
+	}
+	rows := make([]row, 0, len(found))
+	for _, r := range found {
+		status := "new"
+		if p, ok := ps.Lookup(r.NodeID); ok {
+			switch {
+			case p.PublicKey != r.PubKey:
+				status = "key-mismatch"
+			case p.Address != r.Addr:
+				status = "address-changed"
+			default:
+				status = "enrolled"
+			}
+		}
+		rows = append(rows, row{Result: r, Status: status})
+	}
+
+	if *jsonOut {
+		apiwire.Print(rows)
+		return
+	}
+	if len(rows) == 0 {
+		fmt.Println("No peers announced. (Nodes must run `slate serve --peer-listen … --announce`.)")
+		return
+	}
+	fmt.Printf("%-20s  %-22s  %-16s  %-19s  %s\n", "NODE", "ADDRESS", "STATUS", "FINGERPRINT", "DEPARTMENT")
+	fmt.Println(strings.Repeat("─", 96))
+	for _, r := range rows {
+		fmt.Printf("%-20s  %-22s  %-16s  %-19s  %s\n", r.NodeID, r.Addr, r.Status, r.Fingerprint, r.Department)
+	}
+	fmt.Println("\nDiscovery does not grant trust. Verify a fingerprint out of band, then enroll:")
+	fmt.Println("  slate peer add --node ID --pubkey HEX --addr HOST:PORT")
+	fmt.Println("For nodes already enrolled whose address moved, run: slate peer refresh")
+}
+
+// runPeerRefresh updates the addresses of already-enrolled peers from signed
+// beacons. This is the only auto-mutating discovery action, and it is safe: a
+// peer's address is updated only when a beacon signed by that peer's ENROLLED
+// public key is heard. A beacon claiming the peer's node ID under a DIFFERENT key
+// is a possible impersonation — it is refused and reported, never applied.
+func runPeerRefresh() {
+	fs := flag.NewFlagSet("peer refresh", flag.ExitOnError)
+	forDur := fs.Duration("for", 6*time.Second, "How long to listen for beacons")
+	group := fs.String("group", discovery.DefaultGroup, "Discovery multicast group")
+	port := fs.Int("discovery-port", discovery.DefaultPort, "Discovery multicast port")
+	dryRun := fs.Bool("dry-run", false, "Show what would change without writing")
+	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
+	_ = fs.Parse(os.Args[3:])
+
+	groupAddr := fmt.Sprintf("%s:%d", *group, *port)
+	if !*jsonOut {
+		fmt.Printf("Listening for enrolled peers on %s for %s …\n", groupAddr, *forDur)
+	}
+	found, err := discovery.Listen(context.Background(), groupAddr, *forDur)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("refresh: %v", err))
+	}
+	byNode := make(map[string]discovery.Result, len(found))
+	for _, r := range found {
+		byNode[r.NodeID] = r
+	}
+
+	ps := mustOpenPeerStore()
+	type change struct {
+		NodeID  string `json:"node_id"`
+		From    string `json:"from"`
+		To      string `json:"to"`
+		Applied bool   `json:"applied"`
+		Result  string `json:"result"` // updated | would-update | key-mismatch
+	}
+	var changes []change
+	for _, p := range ps.List() {
+		r, ok := byNode[p.NodeID]
+		if !ok {
+			continue // not heard this round
+		}
+		if r.PubKey != p.PublicKey {
+			changes = append(changes, change{NodeID: p.NodeID, From: p.Address, To: r.Addr, Result: "key-mismatch"})
+			continue
+		}
+		if r.Addr == p.Address {
+			continue // already current
+		}
+		c := change{NodeID: p.NodeID, From: p.Address, To: r.Addr}
+		if *dryRun {
+			c.Result = "would-update"
+		} else if err := ps.SetAddress(p.NodeID, r.Addr); err != nil {
+			failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("update %s: %v", p.NodeID, err))
+		} else {
+			c.Applied = true
+			c.Result = "updated"
+		}
+		changes = append(changes, c)
+	}
+
+	if *jsonOut {
+		apiwire.Print(changes)
+		return
+	}
+	if len(changes) == 0 {
+		fmt.Println("All enrolled peers heard are already at their current address (nothing to update).")
+		return
+	}
+	for _, c := range changes {
+		switch c.Result {
+		case "key-mismatch":
+			fmt.Printf("⚠ %s: beacon key does NOT match the enrolled key — refused (possible impersonation)\n", c.NodeID)
+		case "would-update":
+			fmt.Printf("• %s: %s → %s (dry run, not written)\n", c.NodeID, c.From, c.To)
+		case "updated":
+			fmt.Printf("✓ %s: %s → %s\n", c.NodeID, c.From, c.To)
+		}
+	}
+}
+
 func mustOpenPeerStore() *peer.Store {
 	ps, err := peer.Open(filepath.Join(slateDir(), "peers.json"))
 	if err != nil {
@@ -1203,6 +1353,9 @@ func runServe() {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.Int("port", 0, "Port (overrides config, default 8890)")
 	peerListen := fs.String("peer-listen", "", "Enable LAN peer-transfer listener on host:port (e.g. 0.0.0.0:8891). Off by default.")
+	announce := fs.Bool("announce", false, "Broadcast a signed presence beacon so peers can auto-discover this node (requires --peer-listen). Off by default.")
+	discoveryGroup := fs.String("discovery-group", discovery.DefaultGroup, "Discovery multicast group (with --announce)")
+	discoveryPort := fs.Int("discovery-port", discovery.DefaultPort, "Discovery multicast port (with --announce)")
 	_ = fs.Parse(os.Args[2:])
 
 	dir := slateDir()
@@ -1249,6 +1402,41 @@ func runServe() {
 				fatal("peer listener: %v", err)
 			}
 		}()
+
+		// Optional signed presence beacon for LAN auto-discovery. Opt-in on top of
+		// the listener: it advertises identity + port only, never grants trust.
+		if *announce {
+			priv, _, err := peer.LoadNodeKey()
+			if err != nil {
+				fatal("--announce requires a node key: %v", err)
+			}
+			_, portStr, err := net.SplitHostPort(*peerListen)
+			if err != nil {
+				fatal("--peer-listen must be host:port to announce: %v", err)
+			}
+			listenPort, err := strconv.Atoi(portStr)
+			if err != nil {
+				fatal("invalid peer-listen port: %v", err)
+			}
+			ann := &discovery.Announcement{
+				NodeID:     cfg.NodeID,
+				Port:       listenPort,
+				Department: cfg.Department,
+				Time:       time.Now().UTC(),
+			}
+			if err := ann.Sign(priv); err != nil {
+				fatal("sign beacon: %v", err)
+			}
+			groupAddr := fmt.Sprintf("%s:%d", *discoveryGroup, *discoveryPort)
+			fmt.Printf("Discovery beacon: announcing %s on %s every %s\n", cfg.NodeID, groupAddr, discovery.DefaultInterval)
+			go func() {
+				if err := discovery.Broadcast(context.Background(), groupAddr, ann, discovery.DefaultInterval); err != nil {
+					fmt.Fprintf(os.Stderr, "discovery beacon stopped: %v\n", err)
+				}
+			}()
+		}
+	} else if *announce {
+		fatal("--announce requires --peer-listen (there is nothing to advertise without the listener)")
 	}
 
 	mux := http.NewServeMux()

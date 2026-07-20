@@ -215,6 +215,23 @@ func (s *Store) Add(nodeID, pubKeyHex, address string) error {
 	return s.save()
 }
 
+// SetAddress updates only the network address of an already-enrolled peer,
+// leaving its public key and enrollment date untouched. This is the safe target
+// of address auto-refresh: the caller must have already confirmed the refreshing
+// announcement was signed by this peer's ENROLLED public key, so the trust anchor
+// never changes — only where to reach it.
+func (s *Store) SetAddress(nodeID, address string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.peers {
+		if p.NodeID == nodeID {
+			s.peers[i].Address = address
+			return s.save()
+		}
+	}
+	return fmt.Errorf("peer not found: %s", nodeID)
+}
+
 // Remove drops an enrolled peer by node ID.
 func (s *Store) Remove(nodeID string) error {
 	s.mu.Lock()

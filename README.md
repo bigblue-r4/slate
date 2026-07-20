@@ -14,6 +14,7 @@ SLATE runs on a local department-controlled node. No cloud required. Encrypted, 
 - [Quick start](#quick-start)
 - [CLI reference](#cli-reference)
 - [Multi-node LAN custody (v1.1)](#multi-node-lan-custody-v11)
+- [LAN auto-discovery (v1.2)](#lan-auto-discovery-v12)
 - [Roles](#roles)
 - [Data layout](#data-layout)
 - [Security model](#security-model)
@@ -54,12 +55,12 @@ slate import     --file PATH [--format csv|json] [--dry-run]
 slate batch      transfer --to NODE (--items a,b,c | --case C | --category CAT)
 slate batch      hold set|release (--items a,b,c | --case C) [--reason TEXT]
 slate verify
-slate peer       keygen | identity | add | list | remove | transfer
+slate peer       keygen | identity | add | list | remove | transfer | discover | refresh
 slate token add  --role ROLE --name NAME
 slate token list
 slate token revoke TOKEN
 slate keygen
-slate serve      [--port 8890] [--peer-listen HOST:PORT]
+slate serve      [--port 8890] [--peer-listen HOST:PORT] [--announce]
 slate version
 ```
 
@@ -95,9 +96,10 @@ Exits non-zero if the chain is broken.
 ## Multi-node LAN custody (v1.1)
 
 Transfer custody of an item to a peer node over a department LAN, offline, with
-the audit chain intact across the handoff. **Manual pairing only** — no
-auto-discovery. See [`docs/node-model.md`](docs/node-model.md) for the full trust
-model.
+the audit chain intact across the handoff. **Trust is established by manual
+pairing**; optional [auto-discovery](#lan-auto-discovery-v12) removes the
+address-hunting friction without granting trust. See
+[`docs/node-model.md`](docs/node-model.md) for the full trust model.
 
 ```bash
 # On each node, once: generate an identity key (kept ONLY in the env, never on disk)
@@ -118,6 +120,35 @@ A handoff is a **signed transfer bundle** (Ed25519). The receiver verifies the
 signature against the *enrolled* public key for the claimed sender before
 accepting anything; an unknown sender, a bad signature, or a mutated bundle is
 rejected and logged. Both nodes record the handoff in their audit logs.
+
+## LAN auto-discovery (v1.2)
+
+Finding a peer's address by hand is tedious, and DHCP breaks it. Discovery fixes
+that **without touching the trust model**: it advertises presence, never trust.
+
+```bash
+# Receiver advertises a signed presence beacon (opt-in, on top of the listener)
+slate serve --peer-listen 0.0.0.0:8891 --announce
+
+# Anyone on the LAN can see who is out there — READ-ONLY, never enrolls anyone
+slate peer discover
+# NODE        ADDRESS              STATUS   FINGERPRINT          DEPARTMENT
+# node-B      192.168.1.20:8891    new      1a2b-3c4d-5e6f-7a8b  Honolulu PD
+
+# Verify the fingerprint out of band, THEN enroll deliberately (unchanged)
+slate peer add --node node-B --pubkey <B-pubkey> --addr 192.168.1.20:8891
+
+# When an already-enrolled peer's address drifts, refresh it safely
+slate peer refresh            # updates addresses only for beacons signed by the enrolled key
+slate peer refresh --dry-run  # preview without writing
+```
+
+Discovery uses UDP multicast and the Go standard library only — **no third-party
+mDNS dependency**. The beacon is Ed25519 self-signed and carries no evidence data.
+`peer refresh` updates an enrolled peer's **address** only when the beacon is signed
+by that peer's **enrolled key**; a beacon claiming the node ID under a different key
+is refused as a possible impersonation. See
+[`docs/node-model.md`](docs/node-model.md#lan-auto-discovery-v12) for the full model.
 
 ## Roles
 
