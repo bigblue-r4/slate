@@ -97,6 +97,28 @@ func TestPeerStore(t *testing.T) {
 	}
 }
 
+func TestPeerSetAddress(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "peers.json"))
+	pub, _, _ := GenerateNodeKey()
+	if err := s.Add("node-B", pub, "127.0.0.1:8891"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAddress("node-B", "10.0.0.7:8891"); err != nil {
+		t.Fatalf("set address: %v", err)
+	}
+	p, ok := s.Lookup("node-B")
+	if !ok || p.Address != "10.0.0.7:8891" {
+		t.Fatalf("address not updated: %+v", p)
+	}
+	// The public key (trust anchor) must be preserved across an address refresh.
+	if p.PublicKey != pub {
+		t.Fatal("SetAddress must not alter the enrolled public key")
+	}
+	if err := s.SetAddress("node-ghost", "10.0.0.9:8891"); err == nil {
+		t.Fatal("expected error updating a non-enrolled peer")
+	}
+}
+
 func TestPeerAddRejectsBadKey(t *testing.T) {
 	s, _ := Open(filepath.Join(t.TempDir(), "peers.json"))
 	if err := s.Add("node-X", "xyz", "addr"); err == nil {

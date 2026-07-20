@@ -71,6 +71,48 @@ secure the pipe and would add certificate lifecycle management.
 - Replay protection is limited to "refuse an item ID that already exists locally."
   A dedicated seen-bundle ledger is a candidate for a future slice.
 
+## LAN auto-discovery (v1.2)
+
+Manual pairing (v1.1) requires operators to hand-enter each peer's address, and
+that address breaks whenever DHCP moves a node. v1.2 adds **opt-in discovery** that
+removes the address-hunting friction **without weakening the trust model**.
+
+### Discovery announces identity — it never grants trust
+
+- A serving node can broadcast a **signed presence beacon** by adding `--announce`
+  to `slate serve --peer-listen …`. The beacon is a small UDP multicast packet
+  carrying the node ID, its Ed25519 public key, its peer-listen **port**, and a
+  timestamp, **self-signed** with the node key. The host is deliberately *not* in
+  the packet — the listener derives it from the UDP source address, so the beacon
+  stays correct across DHCP changes.
+- The signature proves the announcer holds the private key for the public key it
+  advertises and makes the packet tamper-evident. An attacker on the LAN cannot
+  forge a beacon for a public key they don't control.
+- `slate peer discover` listens for beacons and prints who is out there, each with
+  a **fingerprint** and a status (`new`, `enrolled`, `address-changed`,
+  `key-mismatch`). It is strictly **read-only** — it never writes to `peers.json`.
+- **Enrollment stays a deliberate, manual act.** After comparing a fingerprint out
+  of band, the operator still runs `slate peer add …` to establish trust. Discovery
+  cannot enroll a node, so a rogue node announcing itself gains nothing.
+
+### The one safe auto-mutation: address refresh
+
+`slate peer refresh` updates the **address** of peers that are *already enrolled*,
+from their beacons. This is safe to automate because the update is applied only
+when the beacon is signed by that peer's **enrolled public key** — forging it would
+require the peer's private key. A beacon that claims an enrolled node's ID under a
+**different** key is treated as a possible impersonation: it is **refused and
+reported**, never applied. Use `--dry-run` to preview changes.
+
+### Transport & posture
+
+- Discovery uses **UDP multicast (group 239.255.42.99:8892 by default)** and the Go
+  standard library only — no third-party mDNS/zeroconf dependency, consistent with
+  SLATE's minimal-surface-area posture. Group and port are configurable.
+- Discovery is **entirely opt-in**: without `--announce`, a node emits no beacons,
+  and `discover`/`refresh` are inert commands that simply hear nothing.
+- The beacon carries no evidence data — only presence and identity metadata.
+
 ## Node ID stability
 
 Node IDs appear in every custody event. Change a node ID after deployment and the chain shows a gap. Keep node IDs stable for the lifetime of the installation.
@@ -84,4 +126,4 @@ Examples:
 
 ## Planned: central aggregation
 
-A future SLATE version will support a central aggregation node that pulls encrypted logs from all nodes and provides a unified cross-node chain-of-custody view. This will use the Harborlight SGAIL remote sync protocol. It will build on the v1.1 signed-bundle trust model above (auto-discovery and transport encryption are the next slices).
+A future SLATE version will support a central aggregation node that pulls encrypted logs from all nodes and provides a unified cross-node chain-of-custody view. This will use the Harborlight SGAIL remote sync protocol. It will build on the v1.1 signed-bundle trust model and the v1.2 auto-discovery above (transport encryption is the remaining next slice).
