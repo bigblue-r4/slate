@@ -113,6 +113,50 @@ reported**, never applied. Use `--dry-run` to preview changes.
   and `discover`/`refresh` are inert commands that simply hear nothing.
 - The beacon carries no evidence data — only presence and identity metadata.
 
+## Transport encryption — sealed bundles (v1.3)
+
+v1.1/v1.2 **signed** the transfer bundle but sent it in cleartext, so item metadata
+was visible to a LAN eavesdropper. v1.3 adds opt-in **end-to-end encryption** that,
+like the signature, secures the *evidence itself* — confidential at rest and in
+transit — and still needs **no CA/PKI**.
+
+### Keys: derived, not new
+
+- Each node's **X25519 encryption key is derived from its existing Ed25519 identity
+  seed**. No new secret is introduced — `SLATE_NODE_KEY` remains the only private
+  key material.
+- The X25519 *public* key cannot be derived from the Ed25519 *public* key, so peers
+  enroll it alongside the signing key. To keep pairing to a single step, `slate peer
+  identity` (and `keygen`) now print a combined **identity token** — `<signing>.<encryption>`
+  — and `slate peer add --pubkey <token>` accepts it. A bare signing key still works
+  (that peer simply can't receive sealed bundles until re-enrolled with a token).
+
+### Sealing
+
+- `slate peer transfer --item ID --to NODE --encrypt` seals the signed bundle to the
+  recipient's enrolled X25519 key: an **ephemeral** X25519 key per handoff (forward
+  secrecy) → ECDH → HKDF → **ChaCha20-Poly1305**. Only the ephemeral public key,
+  nonce, and ciphertext travel in the clear — the item, its events, and even the
+  sender's node ID are inside the ciphertext.
+- The sealed bundle is POSTed to `/api/peer/receive-sealed`. The receiver decrypts
+  with its own derived X25519 key, then runs the **identical** enrolled-sender
+  signature check as the cleartext path. **Encryption adds confidentiality; it does
+  not change the authentication model.** A failed decrypt is logged as a
+  `slate/peer_reject` WARN with no node attribution (nothing else is known yet).
+
+### Posture controls
+
+- `slate serve --peer-listen …` accepts **both** cleartext and sealed by default
+  (sealed only if `SLATE_NODE_KEY` is set so the node can decrypt).
+- `slate serve … --require-encryption` refuses cleartext outright — the plain
+  endpoint returns 403 and only sealed transfers are accepted. Requires
+  `SLATE_NODE_KEY`.
+- Crypto is **stdlib `crypto/ecdh`** plus `x/crypto` (chacha20poly1305, hkdf) —
+  already dependencies. No new third-party surface.
+
+`peers.json` gains an optional `enc_pubkey` per peer; entries enrolled before v1.3
+simply lack it and keep working in cleartext until re-enrolled with an identity token.
+
 ## Node ID stability
 
 Node IDs appear in every custody event. Change a node ID after deployment and the chain shows a gap. Keep node IDs stable for the lifetime of the installation.
