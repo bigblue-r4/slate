@@ -1322,18 +1322,19 @@ func runToken() {
 	case "add":
 		fs := flag.NewFlagSet("token add", flag.ExitOnError)
 		role := fs.String("role", "", "Role: chief, evidence_clerk, tech_admin, officer, auditor (required)")
+		badge := fs.String("badge", "", "Officer badge / ID number (optional), shown alongside the name")
 		name := fs.String("name", "", "Person's name — appears in audit logs (required)")
 		jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
 		_ = fs.Parse(os.Args[3:])
 		if *role == "" || *name == "" {
-			usageErr(*jsonOut, "usage: slate token add --role ROLE --name NAME")
+			usageErr(*jsonOut, "usage: slate token add --role ROLE --name NAME [--badge NUMBER]")
 		}
-		token, err := ts.Add(*role, *name)
+		token, err := ts.Add(*role, *name, *badge)
 		if err != nil {
 			failCmd(*jsonOut, apiwire.CodeBadRequest, fmt.Sprintf("add token: %v", err))
 		}
 		if *jsonOut {
-			apiwire.Print(map[string]string{"name": *name, "role": *role, "token": token})
+			apiwire.Print(map[string]string{"name": *name, "role": *role, "badge": *badge, "token": token})
 			return
 		}
 		fmt.Printf("Token added for %s (%s).\n", *name, *role)
@@ -1349,7 +1350,7 @@ func runToken() {
 			out := make([]map[string]string, 0, len(entries))
 			for _, e := range entries {
 				out = append(out, map[string]string{
-					"name": e.Name, "role": e.Role, "added_at": e.AddedAt,
+					"name": e.Name, "role": e.Role, "badge": e.Badge, "added_at": e.AddedAt,
 					"token_prefix": tokenPrefix(e.Token),
 				})
 			}
@@ -1360,10 +1361,10 @@ func runToken() {
 			fmt.Println("No tokens configured. Run: slate token add --role chief --name \"Name\"")
 			return
 		}
-		fmt.Printf("%-18s  %-16s  %-10s  %s\n", "NAME", "ROLE", "ADDED", "TOKEN (first 12)")
+		fmt.Printf("%-18s  %-8s  %-16s  %-10s  %s\n", "NAME", "BADGE", "ROLE", "ADDED", "TOKEN (first 12)")
 		fmt.Println(strings.Repeat("─", 72))
 		for _, e := range entries {
-			fmt.Printf("%-18s  %-16s  %-10s  %s\n", e.Name, e.Role, e.AddedAt, tokenPrefix(e.Token))
+			fmt.Printf("%-18s  %-8s  %-16s  %-10s  %s\n", e.Name, e.Badge, e.Role, e.AddedAt, tokenPrefix(e.Token))
 		}
 
 	case "revoke":
@@ -1678,6 +1679,9 @@ func entryFrom(r *http.Request) (tokens.Entry, bool) {
 
 func actorFrom(r *http.Request) string {
 	if e, ok := entryFrom(r); ok && e.Name != "" {
+		if e.Badge != "" {
+			return fmt.Sprintf("%s (Badge %s)", e.Name, e.Badge)
+		}
 		return e.Name
 	}
 	return "unknown"
@@ -1718,7 +1722,10 @@ func (s *server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	}
 	apiwire.WriteOK(w, map[string]any{
 		"role":        e.Role,
+		"role_label":  roles.Label(role),
 		"name":        e.Name,
+		"badge":       e.Badge,
+		"department":  s.cfg.Department,
 		"permissions": perms,
 	})
 }
@@ -1735,13 +1742,19 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	events, _ := s.store.GetAllEvents()
+	peerCount := 0
+	if s.peerStore != nil {
+		peerCount = len(s.peerStore.List())
+	}
 	resp := map[string]any{
-		"node_id":     s.cfg.NodeID,
-		"department":  s.cfg.Department,
-		"version":     version,
-		"item_count":  len(items),
-		"hold_count":  holdCount,
-		"log_entries": len(events),
+		"node_id":        s.cfg.NodeID,
+		"department":     s.cfg.Department,
+		"version":        version,
+		"item_count":     len(items),
+		"hold_count":     holdCount,
+		"log_entries":    len(events),
+		"external_calls": 0,
+		"peer_count":     peerCount,
 	}
 	if len(events) > 0 {
 		e := events[len(events)-1]
