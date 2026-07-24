@@ -29,35 +29,44 @@ SLATE runs on a local department-controlled node. No cloud required. Encrypted, 
 # 1. Build
 go build -o slate ./cmd/slate
 
-# 2. Initialize
-./slate init --department "Honolulu PD" --node "node-001"
+# 2. Initialize — ONE command: generates + seals the node key (machine-bound),
+#    mints a first Command (full-access) token, and prints a recovery sheet.
+./slate init --agency "Honolulu PD" --node "node-001"
+# → prints the admin sign-in token + a RECOVERY SHEET — print it and store it OFFLINE
 
-# 3. Add your first access token
-./slate token add --role chief --name "Chief Johnson"
-# → prints a token; copy it now
-
-# 4. Start the dashboard
+# 3. Start the dashboard — works immediately, no extra setup, no env vars
 ./slate serve
-# → http://127.0.0.1:8890
+# → http://127.0.0.1:8890  (sign in with the token from step 2)
 ```
+
+Optional agency branding at init (or later with `slate brand`):
+
+```bash
+./slate init --agency "Honolulu PD" --accent "#1e5aa8" --seal "HPD Evidence Unit" --logo hpd.png
+```
+
+> The node key is sealed **to this machine**. If the hardware dies, the raw key on
+> the recovery sheet is the only way to restore the node's identity — keep it safe.
 
 ## CLI reference
 
 ```
-slate init       [--department NAME] [--node ID]
+slate init       --agency NAME [--node ID] [--accent HEX] [--seal TEXT] [--logo PATH] [--admin-name N] [--admin-badge B]
+slate brand      [--agency N] [--accent HEX] [--seal TEXT] [--logo PATH | --clear-logo]
 slate status
 slate intake     --case C --desc D [--cat CATEGORY] [--node NODE] [--role ROLE]
 slate transfer   --item ID --from NODE --to NODE [--notes TEXT]
 slate hold set   --item ID --reason TEXT
 slate hold release --item ID
 slate export     --case C [--sign]
+slate receipt    ITEM-ID [--out FILE]           # printable QR chain-of-custody receipt
 slate audit query [--case C] [--item ID] [--type EVENT] [--role R] [--actor N] [--from DATE] [--to DATE] [--text S]
 slate import     --file PATH [--format csv|json] [--dry-run]
 slate batch      transfer --to NODE (--items a,b,c | --case C | --category CAT)
 slate batch      hold set|release (--items a,b,c | --case C) [--reason TEXT]
 slate verify
 slate peer       keygen | identity | add | list | remove | transfer | discover | refresh
-slate token add  --role ROLE --name NAME
+slate token add  --role ROLE --name NAME [--badge NUMBER]
 slate token list
 slate token revoke TOKEN
 slate keygen
@@ -183,21 +192,44 @@ for the full model.
 
 ## Roles
 
-| Role | What they can do |
-|------|-----------------|
-| `chief` | Everything |
-| `evidence_clerk` | Intake, transfer, holds |
-| `tech_admin` | System admin, audit read |
-| `officer` | Intake, status |
-| `auditor` | Read-only audit trail |
+Five fixed presets — no permission matrix to build. The dashboard shows a
+PD-friendly label; the internal role string (used in `tokens.json` and the API)
+is unchanged.
+
+| Role (internal) | Shown as | What they can do |
+|-----------------|----------|-----------------|
+| `chief` | Command | Everything |
+| `evidence_clerk` | Evidence Custodian | Intake, transfer, holds |
+| `tech_admin` | Admin | System admin, audit read |
+| `officer` | Patrol | Intake, status |
+| `auditor` | Records | Read-only audit trail |
+
+## Field UX (PD edition)
+
+Built for the people who actually use it — a sergeant, a custodian, a chief:
+
+- **Zero-config first run** — `slate init --agency` and `slate serve`; no config
+  file, no env var, no second command. Prints a first admin token + a recovery sheet.
+- **Badge-number identity** — `token add --badge 4471`; audit signatures read
+  *"J. Kealoha (Badge 4471)"*, not a hex key.
+- **Per-role landing** — Patrol lands on Evidence intake, Evidence Custodian on the
+  item list, Records/Command on the overview.
+- **Sovereignty you can see** — a persistent `LOCAL NODE · 0 external calls` header
+  chip. The node never phones home; the chip says so.
+- **Agency skinning** — name, accent color, logo, and a seal on court exports
+  (`slate brand` / `init --accent/--seal/--logo`).
+- **Printed QR custody receipts** — `slate receipt ITEM-ID` (or the dashboard
+  **Print receipt** button) produces a printable receipt whose QR encodes
+  item + case + node + a custody digest. Chain-of-custody that survives a dead battery.
 
 ## Data layout
 
 ```
 ~/.slate/
 ├── soul.toml      — immutable identity (verified at startup)
-├── config.json    — department, node ID, port
-├── tokens.json    — per-role access tokens
+├── config.json    — agency/department, branding (accent/seal/logo), node ID, port
+├── nodekey.enc    — node identity key, sealed at rest (machine-bound); see `init`
+├── tokens.json    — per-role access tokens (name + optional badge)
 ├── peers.json     — enrolled peer nodes (signing + encryption keys, addresses) [v1.1/v1.3]
 ├── primary/       — encrypted audit log + evidence catalog
 └── exports/       — generated court export bundles (NDJSON)
@@ -211,6 +243,7 @@ for the full model.
 - Actor name in audit logs comes from the token, not user-supplied input
 - Legal holds are hard-blocked in code — not just policy
 - Dashboard served on `127.0.0.1` only
+- Node identity key sealed at rest, machine-bound (same machine-ID KDF as the log); the `init` recovery sheet is the only portable copy
 
 ## Environment variables
 
@@ -218,7 +251,7 @@ for the full model.
 |----------|---------|
 | `SLATE_DIR` | Override data directory (default: `~/.slate`) |
 | `SLATE_SIGN_KEY` | Ed25519 private key hex for signing exports |
-| `SLATE_NODE_KEY` | Ed25519 private key hex for node identity — signs outbound transfers and (via a derived X25519 key) opens sealed inbound transfers |
+| `SLATE_NODE_KEY` | Ed25519 private key hex for node identity — signs outbound transfers and (via a derived X25519 key) opens sealed inbound transfers. **Optional**: overrides the at-rest key from `init`. If unset, the machine-bound `nodekey.enc` is used, so `serve` works with no env var. |
 
 ## Build from source
 
