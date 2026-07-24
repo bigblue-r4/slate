@@ -15,6 +15,7 @@ SLATE runs on a local department-controlled node. No cloud required. Encrypted, 
 - [CLI reference](#cli-reference)
 - [Multi-node LAN custody (v1.1)](#multi-node-lan-custody-v11)
 - [LAN auto-discovery (v1.2)](#lan-auto-discovery-v12)
+- [Transport encryption (v1.3)](#transport-encryption-v13)
 - [Roles](#roles)
 - [Data layout](#data-layout)
 - [Security model](#security-model)
@@ -60,7 +61,7 @@ slate token add  --role ROLE --name NAME
 slate token list
 slate token revoke TOKEN
 slate keygen
-slate serve      [--port 8890] [--peer-listen HOST:PORT] [--announce]
+slate serve      [--port 8890] [--peer-listen HOST:PORT] [--announce] [--require-encryption]
 slate version
 ```
 
@@ -150,6 +151,36 @@ by that peer's **enrolled key**; a beacon claiming the node ID under a different
 is refused as a possible impersonation. See
 [`docs/node-model.md`](docs/node-model.md#lan-auto-discovery-v12) for the full model.
 
+## Transport encryption (v1.3)
+
+Signed bundles are tamper-evident but were sent in cleartext, so a LAN eavesdropper
+could read item metadata. Sealed transfers add **end-to-end encryption** — confidential
+at rest and in transit — with **no CA/PKI**. Each node's X25519 encryption key is
+**derived from its existing Ed25519 identity**, so there is no new secret; peers just
+exchange one combined **identity token** (`<signing>.<encryption>`).
+
+```bash
+# Exchange identity tokens (signing + encryption keys) instead of a bare key
+slate peer identity                  # prints this node's identity token
+slate peer add --node node-B --pubkey <B-identity-token> --addr 192.168.1.20:8891
+
+# Send an ENCRYPTED (sealed) handoff — inner signature is verified as always
+slate peer transfer --item EV-... --to node-B --encrypt
+
+# Receiver can refuse cleartext entirely
+slate serve --peer-listen 0.0.0.0:8891 --require-encryption   # needs SLATE_NODE_KEY
+```
+
+A sealed bundle uses an ephemeral X25519 key per handoff (forward secrecy) →
+ECDH → HKDF → ChaCha20-Poly1305; only the ephemeral key, nonce, and ciphertext are
+in the clear (the item, its events, and the sender's node ID are encrypted). The
+receiver decrypts, then runs the **same** enrolled-sender signature check — encryption
+adds confidentiality without changing authentication. Crypto is stdlib `crypto/ecdh`
+plus `x/crypto` (already dependencies); **no new third-party dependency**. Peers
+enrolled before v1.3 keep working in cleartext until re-enrolled with an identity
+token. See [`docs/node-model.md`](docs/node-model.md#transport-encryption-sealed-bundles-v13)
+for the full model.
+
 ## Roles
 
 | Role | What they can do |
@@ -167,7 +198,7 @@ is refused as a possible impersonation. See
 ├── soul.toml      — immutable identity (verified at startup)
 ├── config.json    — department, node ID, port
 ├── tokens.json    — per-role access tokens
-├── peers.json     — enrolled peer nodes (public keys + addresses) [v1.1]
+├── peers.json     — enrolled peer nodes (signing + encryption keys, addresses) [v1.1/v1.3]
 ├── primary/       — encrypted audit log + evidence catalog
 └── exports/       — generated court export bundles (NDJSON)
 ```
@@ -187,7 +218,7 @@ is refused as a possible impersonation. See
 |----------|---------|
 | `SLATE_DIR` | Override data directory (default: `~/.slate`) |
 | `SLATE_SIGN_KEY` | Ed25519 private key hex for signing exports |
-| `SLATE_NODE_KEY` | Ed25519 private key hex for node identity (peer transfers) |
+| `SLATE_NODE_KEY` | Ed25519 private key hex for node identity — signs outbound transfers and (via a derived X25519 key) opens sealed inbound transfers |
 
 ## Build from source
 

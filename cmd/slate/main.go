@@ -19,13 +19,15 @@
 //	slate keygen
 //	slate peer discover [--for DUR]
 //	slate peer refresh  [--for DUR] [--dry-run]
-//	slate serve      [--port PORT] [--peer-listen HOST:PORT] [--announce]
+//	slate peer transfer --item ID --to NODE [--encrypt]
+//	slate serve      [--port PORT] [--peer-listen HOST:PORT] [--announce] [--require-encryption]
 //	slate version
 package main
 
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/json"
@@ -61,7 +63,7 @@ import (
 //go:embed static/index.html
 var dashboardHTML []byte
 
-const version = "1.2.0"
+const version = "1.3.0"
 
 // ── context keys ──────────────────────────────────────────────────────────────
 
@@ -915,13 +917,23 @@ func runPeerKeygen() {
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("keygen: %v", err))
 	}
+	// The encryption key is derived from the same secret — no separate key to keep.
+	edPriv, _, err := peer.DecodeNodeKey(priv)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("keygen: %v", err))
+	}
+	_, encPub, err := peer.DeriveEncKey(edPriv)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("derive encryption key: %v", err))
+	}
+	token := peer.IdentityToken(pub, encPub)
 	if *jsonOut {
-		apiwire.Print(map[string]string{"public_key": pub, "private_key": priv})
+		apiwire.Print(map[string]string{"public_key": pub, "enc_pubkey": encPub, "identity": token, "private_key": priv})
 		return
 	}
-	fmt.Println("Ed25519 node identity key pair generated.")
+	fmt.Println("Ed25519 node identity key pair generated (with a derived X25519 encryption key).")
 	fmt.Println()
-	fmt.Printf("Public key  (share with peers, safe to distribute):\n%s\n\n", pub)
+	fmt.Printf("Identity token (share with peers — signing + encryption public keys):\n%s\n\n", token)
 	fmt.Printf("Private key (keep secret — set as %s):\n%s\n\n", peer.NodeKeyEnv, priv)
 	fmt.Printf("Never store the private key on disk. Export it before serving:\n  export %s=%s\n", peer.NodeKeyEnv, priv)
 }
@@ -932,39 +944,61 @@ func runPeerIdentity() {
 	_ = fs.Parse(os.Args[3:])
 	dir := slateDir()
 	cfg := mustLoadConfig(dir)
-	_, pub, err := peer.LoadNodeKey()
+	edPriv, pub, err := peer.LoadNodeKey()
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeBadRequest, err.Error())
 	}
+	_, encPub, err := peer.DeriveEncKey(edPriv)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("derive encryption key: %v", err))
+	}
+	token := peer.IdentityToken(pub, encPub)
 	if *jsonOut {
-		apiwire.Print(map[string]string{"node_id": cfg.NodeID, "public_key": pub})
+		apiwire.Print(map[string]string{"node_id": cfg.NodeID, "public_key": pub, "enc_pubkey": encPub, "identity": token})
 		return
 	}
-	fmt.Printf("Node ID    : %s\n", cfg.NodeID)
-	fmt.Printf("Public key : %s\n", pub)
-	fmt.Println("\nShare these with peers so they can enroll this node:")
-	fmt.Printf("  slate peer add --node %s --pubkey %s --addr <this-host:peer-port>\n", cfg.NodeID, pub)
+	fmt.Printf("Node ID        : %s\n", cfg.NodeID)
+	fmt.Printf("Signing key    : %s\n", pub)
+	fmt.Printf("Encryption key : %s\n", encPub)
+	fmt.Printf("Identity token : %s\n", token)
+	fmt.Println("\nShare the identity token with peers so they can enroll this node:")
+	fmt.Printf("  slate peer add --node %s --pubkey %s --addr <this-host:peer-port>\n", cfg.NodeID, token)
 }
 
 func runPeerAdd() {
 	fs := flag.NewFlagSet("peer add", flag.ExitOnError)
 	node := fs.String("node", "", "Peer node ID (required)")
-	pubkey := fs.String("pubkey", "", "Peer Ed25519 public key hex (required)")
+	pubkey := fs.String("pubkey", "", "Peer identity token or Ed25519 signing key hex (required)")
+	encPubkey := fs.String("enc-pubkey", "", "Peer X25519 encryption key hex (optional; overrides the one in --pubkey)")
 	addr := fs.String("addr", "", "Peer receive address host:port (required for sending)")
 	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
 	_ = fs.Parse(os.Args[3:])
 	if *node == "" || *pubkey == "" {
-		usageErr(*jsonOut, "usage: slate peer add --node ID --pubkey HEX --addr HOST:PORT")
+		usageErr(*jsonOut, "usage: slate peer add --node ID --pubkey TOKEN --addr HOST:PORT")
+	}
+	// --pubkey accepts either a combined identity token ("<sig>.<enc>") or a bare
+	// signing key (legacy). An explicit --enc-pubkey wins if given.
+	sigPub, encPub := peer.SplitIdentityToken(*pubkey)
+	if *encPubkey != "" {
+		encPub = *encPubkey
 	}
 	ps := mustOpenPeerStore()
-	if err := ps.Add(*node, *pubkey, *addr); err != nil {
+	if err := ps.Add(*node, sigPub, *addr); err != nil {
 		failCmd(*jsonOut, apiwire.CodeBadRequest, fmt.Sprintf("add peer: %v", err))
 	}
+	encStatus := "no (sealed transfers unavailable — re-enroll with an identity token)"
+	if encPub != "" {
+		if err := ps.SetEncKey(*node, encPub); err != nil {
+			failCmd(*jsonOut, apiwire.CodeBadRequest, fmt.Sprintf("add peer encryption key: %v", err))
+		}
+		encStatus = "yes"
+	}
 	if *jsonOut {
-		apiwire.Print(map[string]string{"node_id": *node, "address": *addr, "status": "enrolled"})
+		apiwire.Print(map[string]string{"node_id": *node, "address": *addr, "encryption": encStatus, "status": "enrolled"})
 		return
 	}
 	fmt.Printf("Peer enrolled: %s (%s)\n", *node, *addr)
+	fmt.Printf("  Encryption key enrolled: %s\n", encStatus)
 }
 
 func runPeerList() {
@@ -981,10 +1015,14 @@ func runPeerList() {
 		fmt.Println("No peers enrolled. Add one: slate peer add --node ID --pubkey HEX --addr HOST:PORT")
 		return
 	}
-	fmt.Printf("%-20s  %-22s  %-12s  %s\n", "NODE", "ADDRESS", "ADDED", "PUBKEY (first 16)")
-	fmt.Println(strings.Repeat("─", 80))
+	fmt.Printf("%-20s  %-22s  %-12s  %-5s  %s\n", "NODE", "ADDRESS", "ADDED", "ENC", "PUBKEY (first 16)")
+	fmt.Println(strings.Repeat("─", 86))
 	for _, p := range peers {
-		fmt.Printf("%-20s  %-22s  %-12s  %s\n", p.NodeID, p.Address, p.AddedAt, truncate(p.PublicKey, 16))
+		enc := "no"
+		if p.EncPubKey != "" {
+			enc = "yes"
+		}
+		fmt.Printf("%-20s  %-22s  %-12s  %-5s  %s\n", p.NodeID, p.Address, p.AddedAt, enc, truncate(p.PublicKey, 16))
 	}
 }
 
@@ -1014,10 +1052,11 @@ func runPeerTransfer() {
 	actor := fs.String("actor", osUser(), "Actor name for audit log")
 	role := fs.String("role", "", "Actor role for audit log (optional)")
 	notes := fs.String("notes", "", "Handoff notes")
+	encrypt := fs.Bool("encrypt", false, "Encrypt the bundle end-to-end to the peer's enrolled key (sealed transfer)")
 	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
 	_ = fs.Parse(os.Args[3:])
 	if *itemID == "" || *to == "" {
-		usageErr(*jsonOut, "usage: slate peer transfer --item ID --to NODE [--notes TEXT]")
+		usageErr(*jsonOut, "usage: slate peer transfer --item ID --to NODE [--encrypt] [--notes TEXT]")
 	}
 
 	priv, _, err := peer.LoadNodeKey()
@@ -1058,8 +1097,23 @@ func runPeerTransfer() {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("sign bundle: %v", err))
 	}
 
-	body, _ := json.Marshal(bundle)
+	// Choose cleartext (default, wire-compatible) or sealed (end-to-end encrypted).
+	var body []byte
 	url := "http://" + dest.Address + "/api/peer/receive"
+	if *encrypt {
+		if dest.EncPubKey == "" {
+			failCmd(*jsonOut, apiwire.CodeBadRequest,
+				fmt.Sprintf("peer %q has no encryption key enrolled — re-enroll it with its identity token (`slate peer identity` on that node)", *to))
+		}
+		sealed, err := peer.SealTo(bundle, dest.EncPubKey)
+		if err != nil {
+			failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("seal bundle: %v", err))
+		}
+		body, _ = json.Marshal(sealed)
+		url = "http://" + dest.Address + "/api/peer/receive-sealed"
+	} else {
+		body, _ = json.Marshal(bundle)
+	}
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("send to peer: %v", err))
@@ -1081,11 +1135,16 @@ func runPeerTransfer() {
 			"item_id":   *itemID,
 			"to":        *to,
 			"bundle_id": bundle.BundleID,
+			"encrypted": *encrypt,
 		})
 		return
 	}
+	mode := "signed, cleartext"
+	if *encrypt {
+		mode = "signed + sealed (end-to-end encrypted)"
+	}
 	fmt.Printf("Custody transferred: %s → %s\n", *itemID, *to)
-	fmt.Printf("  Bundle : %s (signed, verified by peer)\n", bundle.BundleID)
+	fmt.Printf("  Bundle : %s (%s; verified by peer)\n", bundle.BundleID, mode)
 	fmt.Printf("  Events : %d custody record(s) sent\n", len(events))
 }
 
@@ -1356,6 +1415,7 @@ func runServe() {
 	announce := fs.Bool("announce", false, "Broadcast a signed presence beacon so peers can auto-discover this node (requires --peer-listen). Off by default.")
 	discoveryGroup := fs.String("discovery-group", discovery.DefaultGroup, "Discovery multicast group (with --announce)")
 	discoveryPort := fs.Int("discovery-port", discovery.DefaultPort, "Discovery multicast port (with --announce)")
+	requireEncryption := fs.Bool("require-encryption", false, "Accept only end-to-end encrypted (sealed) transfers; refuse cleartext bundles (requires --peer-listen)")
 	_ = fs.Parse(os.Args[2:])
 
 	dir := slateDir()
@@ -1394,9 +1454,36 @@ func runServe() {
 			fatal("open peer store: %v", err)
 		}
 		srv.peerStore = ps
+
+		// If a node key is available, derive this node's X25519 key so it can open
+		// sealed (encrypted) transfers. Absent a key, only cleartext is accepted.
+		if edPriv, _, err := peer.LoadNodeKey(); err == nil {
+			if encPriv, _, derr := peer.DeriveEncKey(edPriv); derr == nil {
+				srv.nodeEncPriv = encPriv
+			}
+		}
+
 		peerMux := http.NewServeMux()
-		peerMux.HandleFunc("/api/peer/receive", srv.handlePeerReceive)
-		fmt.Printf("Peer-transfer listener: http://%s  (enrolled peers: %d)\n", *peerListen, len(ps.List()))
+		if *requireEncryption {
+			if srv.nodeEncPriv == nil {
+				fatal("--require-encryption needs SLATE_NODE_KEY set so this node can decrypt sealed transfers")
+			}
+			// Cleartext endpoint refuses everything; only sealed transfers are accepted.
+			peerMux.HandleFunc("/api/peer/receive", func(w http.ResponseWriter, r *http.Request) {
+				apiwire.WriteErr(w, http.StatusForbidden, apiwire.CodeForbidden,
+					"this node requires encrypted transfers — resend with `slate peer transfer --encrypt`")
+			})
+		} else {
+			peerMux.HandleFunc("/api/peer/receive", srv.handlePeerReceive)
+		}
+		peerMux.HandleFunc("/api/peer/receive-sealed", srv.handlePeerReceiveSealed)
+		encStatus := "cleartext or sealed"
+		if *requireEncryption {
+			encStatus = "sealed only"
+		} else if srv.nodeEncPriv == nil {
+			encStatus = "cleartext only (set SLATE_NODE_KEY to accept sealed)"
+		}
+		fmt.Printf("Peer-transfer listener: http://%s  (enrolled peers: %d; accepts: %s)\n", *peerListen, len(ps.List()), encStatus)
 		go func() {
 			if err := http.ListenAndServe(*peerListen, peerMux); err != nil {
 				fatal("peer listener: %v", err)
@@ -1437,6 +1524,8 @@ func runServe() {
 		}
 	} else if *announce {
 		fatal("--announce requires --peer-listen (there is nothing to advertise without the listener)")
+	} else if *requireEncryption {
+		fatal("--require-encryption requires --peer-listen (there is no listener to protect without it)")
 	}
 
 	mux := http.NewServeMux()
@@ -1464,12 +1553,13 @@ func runServe() {
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
 type server struct {
-	store      *evidence.Store
-	cfg        Config
-	dir        string
-	key        []byte
-	tokenStore *tokens.Store
-	peerStore  *peer.Store // enrolled peers (nil unless the peer listener is enabled)
+	store       *evidence.Store
+	cfg         Config
+	dir         string
+	key         []byte
+	tokenStore  *tokens.Store
+	peerStore   *peer.Store      // enrolled peers (nil unless the peer listener is enabled)
+	nodeEncPriv *ecdh.PrivateKey // this node's X25519 key for opening sealed bundles (nil if SLATE_NODE_KEY unset)
 
 	mu   sync.Mutex             // guards subs
 	subs map[chan struct{}]bool // active SSE subscribers
@@ -1880,7 +1970,41 @@ func (s *server) handlePeerReceive(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &b) {
 		return
 	}
+	s.acceptTransferBundle(w, &b, false)
+}
 
+// handlePeerReceiveSealed accepts an end-to-end encrypted transfer bundle. The
+// node decrypts it with its own X25519 key (derived from SLATE_NODE_KEY), then
+// runs the identical enrolled-sender signature check as the cleartext path — so
+// encryption adds confidentiality without changing the authentication model.
+func (s *server) handlePeerReceiveSealed(w http.ResponseWriter, r *http.Request) {
+	if !requirePost(w, r) {
+		return
+	}
+	if s.nodeEncPriv == nil {
+		apiwire.WriteErr(w, http.StatusServiceUnavailable, apiwire.CodeInternal,
+			"this node cannot accept sealed transfers: SLATE_NODE_KEY is not set")
+		return
+	}
+	var sealed peer.SealedBundle
+	if !decodeBody(w, r, &sealed) {
+		return
+	}
+	b, err := sealed.Open(s.nodeEncPriv)
+	if err != nil {
+		// The sender is unknown until decryption succeeds, so this is logged
+		// without a node attribution — a failed decrypt reveals nothing else.
+		_ = s.store.AppendSystem("WARN", "slate/peer_reject",
+			fmt.Sprintf("rejected sealed transfer: %v", err))
+		apiwire.WriteErr(w, http.StatusBadRequest, apiwire.CodeBadRequest, "sealed bundle could not be opened: "+err.Error())
+		return
+	}
+	s.acceptTransferBundle(w, b, true)
+}
+
+// acceptTransferBundle runs the shared enrolled-sender verification and custody
+// acceptance used by both the cleartext and sealed receive paths.
+func (s *server) acceptTransferBundle(w http.ResponseWriter, b *peer.TransferBundle, sealed bool) {
 	// Re-read peers.json so enrollment/revocation applies without a restart.
 	_ = s.peerStore.Reload()
 
@@ -1914,6 +2038,7 @@ func (s *server) handlePeerReceive(w http.ResponseWriter, r *http.Request) {
 		"bundle_id": b.BundleID,
 		"item_id":   item.ID,
 		"node":      s.cfg.NodeID,
+		"encrypted": sealed,
 	})
 }
 

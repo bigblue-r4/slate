@@ -39,9 +39,10 @@ const NodeKeyEnv = "SLATE_NODE_KEY"
 // Peer is an enrolled remote node.
 type Peer struct {
 	NodeID    string `json:"node_id"`
-	PublicKey string `json:"public_key"` // Ed25519 public key, hex
-	Address   string `json:"address"`    // host:port of the peer's receive listener
-	AddedAt   string `json:"added_at"`   // YYYY-MM-DD
+	PublicKey string `json:"public_key"`           // Ed25519 signing public key, hex
+	EncPubKey string `json:"enc_pubkey,omitempty"` // X25519 encryption public key, hex (v1.3; empty for peers enrolled before it)
+	Address   string `json:"address"`              // host:port of the peer's receive listener
+	AddedAt   string `json:"added_at"`             // YYYY-MM-DD
 }
 
 // TransferBundle is a signed, single-item custody handoff between nodes.
@@ -76,12 +77,23 @@ func LoadNodeKey() (ed25519.PrivateKey, string, error) {
 	if h == "" {
 		return nil, "", fmt.Errorf("%s is not set — generate one with `slate peer keygen`", NodeKeyEnv)
 	}
+	priv, pub, err := DecodeNodeKey(h)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", NodeKeyEnv, err)
+	}
+	return priv, pub, nil
+}
+
+// DecodeNodeKey parses an Ed25519 node private key from hex and returns the key
+// plus its public-key hex. It is the shared parser behind LoadNodeKey and the
+// keygen path (which has the key in hand before it is exported to the env).
+func DecodeNodeKey(h string) (ed25519.PrivateKey, string, error) {
 	raw, err := hex.DecodeString(h)
 	if err != nil {
-		return nil, "", fmt.Errorf("decode %s: %w", NodeKeyEnv, err)
+		return nil, "", fmt.Errorf("decode: %w", err)
 	}
 	if len(raw) != ed25519.PrivateKeySize {
-		return nil, "", fmt.Errorf("%s must be %d bytes (%d hex chars)", NodeKeyEnv, ed25519.PrivateKeySize, ed25519.PrivateKeySize*2)
+		return nil, "", fmt.Errorf("must be %d bytes (%d hex chars)", ed25519.PrivateKeySize, ed25519.PrivateKeySize*2)
 	}
 	priv := ed25519.PrivateKey(raw)
 	pub := priv.Public().(ed25519.PublicKey)
@@ -226,6 +238,25 @@ func (s *Store) SetAddress(nodeID, address string) error {
 	for i, p := range s.peers {
 		if p.NodeID == nodeID {
 			s.peers[i].Address = address
+			return s.save()
+		}
+	}
+	return fmt.Errorf("peer not found: %s", nodeID)
+}
+
+// SetEncKey records (or updates) the X25519 encryption public key of an
+// already-enrolled peer, enabling sealed transfers to it. The key is validated as
+// a well-formed X25519 public key. The signing key and enrollment date are left
+// untouched — the trust anchor does not change.
+func (s *Store) SetEncKey(nodeID, encPubHex string) error {
+	if _, err := decodeX25519Pub(encPubHex); err != nil {
+		return fmt.Errorf("encryption public key %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.peers {
+		if p.NodeID == nodeID {
+			s.peers[i].EncPubKey = encPubHex
 			return s.save()
 		}
 	}
