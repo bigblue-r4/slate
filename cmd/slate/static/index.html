@@ -40,6 +40,7 @@
   .brand-sub { color: var(--muted); font-size: 11px; }
   .header-info { color: var(--muted); font-size: 12px; }
   .user-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; }
+  .sov-chip { background: rgba(63,185,80,.12); color: var(--success); border: 1px solid rgba(63,185,80,.35); border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 600; letter-spacing: .3px; white-space: nowrap; }
   .role-chip { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-left: 6px; }
   .role-chief { background: rgba(47,129,247,.15); color: var(--accent); }
   .role-evidence_clerk { background: rgba(63,185,80,.15); color: var(--success); }
@@ -159,6 +160,7 @@
     <span class="brand">SLATE</span>
     <span class="brand-sub" id="node-info"></span>
     <div class="spacer"></div>
+    <span class="sov-chip" id="sov-chip" title="This node runs fully local - no evidence data leaves the machine.">LOCAL NODE</span>
     <div class="live"><span class="live-dot" id="live-dot"></span><span id="live-label">connecting…</span></div>
     <button class="icon-btn" id="theme-btn" onclick="toggleTheme()">◐ Theme</button>
     <span class="user-badge" id="user-badge"></span>
@@ -282,9 +284,11 @@
 
 <script>
 // ─── state ──────────────────────────────────────────────────────────────────
-let TOKEN = '', MY_ROLE = '', MY_NAME = '', PERMS = {};
+let TOKEN = '', MY_ROLE = '', MY_LABEL = '', MY_NAME = '', MY_BADGE = '', PERMS = {};
 let ITEMS_CACHE = [];
 let es = null, pollTimer = null;
+const ROLE_LABELS = { chief: 'Command', evidence_clerk: 'Evidence Custodian', tech_admin: 'Admin', officer: 'Patrol', auditor: 'Records' };
+function roleLabel(r) { return ROLE_LABELS[r] || r || ''; }
 
 // ─── theme ──────────────────────────────────────────────────────────────────
 (function initTheme() {
@@ -324,13 +328,15 @@ function bootApp(me) {
     document.getElementById('app').style.display = 'flex';
     refreshAll();
     connectStream();
+    switchTab(landingTab());
   }).catch(err => showToast('Load failed: ' + err, true));
 }
 
 function applyWhoami(me) {
-  MY_ROLE = me.role; MY_NAME = me.name; PERMS = me.permissions || {};
+  MY_ROLE = me.role; MY_LABEL = me.role_label || me.role; MY_NAME = me.name; MY_BADGE = me.badge || ''; PERMS = me.permissions || {};
+  const badgeBit = MY_BADGE ? ` &middot; <span class="mono">Badge ${esc(MY_BADGE)}</span>` : '';
   document.getElementById('user-badge').innerHTML =
-    `${esc(MY_NAME)}<span class="role-chip role-${esc(MY_ROLE)}">${esc(MY_ROLE.replace('_',' '))}</span>`;
+    `${esc(MY_NAME)}${badgeBit}<span class="role-chip role-${esc(MY_ROLE)}">${esc(MY_LABEL)}</span>`;
   // Gate nav + action buttons by permission.
   document.querySelectorAll('[data-need]').forEach(el => {
     if (!PERMS[el.dataset.need]) el.setAttribute('data-hidden', '1');
@@ -369,11 +375,22 @@ function currentTab() {
   return b ? b.dataset.tab : 'overview';
 }
 
+// Per-role landing — same app, different front door.
+function landingTab() {
+  const byRole = { officer: 'evidence', evidence_clerk: 'evidence', auditor: 'audit', tech_admin: 'overview', chief: 'overview' };
+  let t = byRole[MY_ROLE] || 'overview';
+  if (t === 'audit' && !PERMS['audit:read']) t = 'overview';
+  return t;
+}
+
 function refreshAll() { loadOverview(); loadItems(); if (PERMS['audit:read']) loadAudit(); }
 
 // ─── Overview ───────────────────────────────────────────────────────────────
 function loadOverview() {
   api('/api/status').then(s => {
+    const _peers = s.peer_count || 0;
+    document.getElementById('sov-chip').textContent =
+      `LOCAL NODE · ${s.external_calls ?? 0} external calls` + (_peers ? ` · ${_peers} peer${_peers > 1 ? 's' : ''}` : '');
     document.getElementById('s-items').textContent = s.item_count ?? '—';
     document.getElementById('s-holds').textContent = s.hold_count ?? '—';
     document.getElementById('s-log').textContent = s.log_entries ?? '—';
@@ -479,7 +496,7 @@ function renderItemDetail(id, evs) {
         const t = d.event_type || e.event;
         let line = `<span class="ev-type ev-${esc(t)}">${esc(t)}</span>`;
         if (d.from_node || d.to_node) line += ` <span class="muted">${esc(d.from_node || '?')} → ${esc(d.to_node || '?')}</span>`;
-        if (d.actor) line += ` <span class="muted">by ${esc(d.actor)}${d.actor_role ? ' (' + esc(d.actor_role) + ')' : ''}</span>`;
+        if (d.actor) line += ` <span class="muted">by ${esc(d.actor)}${d.actor_role ? ' (' + esc(roleLabel(d.actor_role)) + ')' : ''}</span>`;
         return `<li>
           <div class="t-time">${fmtTime(d.timestamp || e.ts)} · seq ${e.seq}</div>
           <div class="t-main">${line}</div>
@@ -514,7 +531,7 @@ function auditRow(e) {
     <td class="mono">${esc(d.item_id || '')}</td>
     <td>${esc(d.case_number || '')}</td>
     <td>${esc(d.actor || '')}</td>
-    <td class="muted">${esc(d.actor_role || '')}</td>
+    <td class="muted">${esc(roleLabel(d.actor_role))}</td>
     <td class="muted">${esc(d.notes || '')}</td>
   </tr>`;
 }
