@@ -21,6 +21,8 @@ type Bundle struct {
 	GeneratedAt time.Time     `json:"generated_at"`
 	CaseNumber  string        `json:"case_number"`
 	Department  string        `json:"department"`
+	Agency      string        `json:"agency,omitempty"` // issuing agency (branding; covered by the signature)
+	Seal        string        `json:"seal,omitempty"`   // agency seal/emblem text (covered by the signature)
 	NodeID      string        `json:"node_id"`
 	EntryCount  int           `json:"entry_count"`
 	SHA256Chain string        `json:"sha256_chain"`        // SHA-256 of all entry payloads concatenated
@@ -29,7 +31,7 @@ type Bundle struct {
 }
 
 // Generate builds a bundle for caseNumber from the provided log entries.
-func Generate(entries []store.Entry, caseNumber, department, nodeID string) (*Bundle, error) {
+func Generate(entries []store.Entry, caseNumber, department, agency, seal, nodeID string) (*Bundle, error) {
 	var filtered []store.Entry
 	for _, e := range entries {
 		if matchesCase(e, caseNumber) {
@@ -45,6 +47,8 @@ func Generate(entries []store.Entry, caseNumber, department, nodeID string) (*Bu
 		GeneratedAt: time.Now().UTC(),
 		CaseNumber:  caseNumber,
 		Department:  department,
+		Agency:      agency,
+		Seal:        seal,
 		NodeID:      nodeID,
 		EntryCount:  len(filtered),
 		SHA256Chain: computeChain(filtered),
