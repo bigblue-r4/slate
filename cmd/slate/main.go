@@ -28,7 +28,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -50,6 +52,7 @@ import (
 
 	"github.com/bigblue-r4/slate/internal/apiwire"
 	"github.com/bigblue-r4/slate/internal/discovery"
+	"github.com/bigblue-r4/slate/internal/encrypt"
 	"github.com/bigblue-r4/slate/internal/evidence"
 	slateexport "github.com/bigblue-r4/slate/internal/export"
 	"github.com/bigblue-r4/slate/internal/machid"
@@ -78,6 +81,10 @@ const (
 // Config is persisted to ~/.slate/config.json.
 type Config struct {
 	Department    string `json:"department"`
+	Agency        string `json:"agency,omitempty"`       // agency/PD display name for branding
+	AccentColor   string `json:"accent_color,omitempty"` // hex accent for dashboard skinning (e.g. #1e5aa8)
+	Seal          string `json:"seal,omitempty"`         // short text/emblem stamped on exports
+	Logo          string `json:"logo,omitempty"`         // agency logo as a self-contained data-URI
 	NodeID        string `json:"node_id"`
 	Port          int    `json:"port"`
 	SigningKeyPub string `json:"signing_key_pub"` // public key for verifying exports; private key never stored
@@ -93,6 +100,8 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		runInit()
+	case "brand":
+		runBrand()
 	case "status":
 		runStatus()
 	case "intake":
@@ -132,9 +141,21 @@ func main() {
 
 func runInit() {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	dept := fs.String("department", "", "Department name")
+	dept := fs.String("department", "", "Department / agency name (defaults to --agency)")
+	agency := fs.String("agency", "", `Agency name, e.g. "Kauai PD" (used for branding)`)
 	nodeID := fs.String("node", "node-001", "Node identifier for this installation")
+	adminName := fs.String("admin-name", "Administrator", "Name for the first admin (Command) access token")
+	adminBadge := fs.String("admin-badge", "", "Badge / ID for the first admin (optional)")
+	accent := fs.String("accent", "", "Accent color hex for the dashboard, e.g. #1e5aa8 (optional)")
+	seal := fs.String("seal", "", "Short seal / emblem text stamped on court exports (optional)")
+	logoPath := fs.String("logo", "", "Path to an agency logo image (png/jpg/svg) shown in the dashboard (optional)")
 	_ = fs.Parse(os.Args[2:])
+	if *agency == "" {
+		*agency = *dept
+	}
+	if *dept == "" {
+		*dept = *agency
+	}
 
 	dir := slateDir()
 	primaryDir := filepath.Join(dir, "primary")
@@ -168,25 +189,115 @@ func runInit() {
 		fatal("write init event: %v", err)
 	}
 
-	cfg := Config{Department: *dept, NodeID: *nodeID, Port: 8890}
+	// Node identity key — generated here, sealed to this machine so `serve` works
+	// with no SLATE_NODE_KEY env var. The recovery sheet below is the ONLY portable
+	// copy; keep it off the machine.
+	nodePub, nodePriv, err := peer.GenerateNodeKey()
+	if err != nil {
+		fatal("generate node key: %v", err)
+	}
+	if err := sealNodeKey(dir, nodePriv); err != nil {
+		fatal("seal node key: %v", err)
+	}
+
+	// First access token: a Command (full-access) account so the operator can open
+	// the dashboard immediately, with no second command required.
+	ts, err := tokens.Open(filepath.Join(dir, "tokens.json"))
+	if err != nil {
+		fatal("open token store: %v", err)
+	}
+	adminToken, err := ts.Add(string(roles.Chief), *adminName, *adminBadge)
+	if err != nil {
+		fatal("create admin token: %v", err)
+	}
+
+	logo := ""
+	if *logoPath != "" {
+		logo, err = logoDataURI(*logoPath)
+		if err != nil {
+			fatal("read logo: %v", err)
+		}
+	}
+	cfg := Config{Department: *dept, Agency: *agency, AccentColor: *accent, Seal: *seal, Logo: logo, NodeID: *nodeID, Port: 8890}
 	if err := saveConfig(dir, cfg); err != nil {
 		fatal("save config: %v", err)
 	}
 
+	fp := nodePub
+	if len(fp) > 16 {
+		fp = fp[:16]
+	}
+	bar := strings.Repeat("=", 72)
 	fmt.Println()
-	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
-	fmt.Println("║  SLATE — Secure Log Audit for Trace Evidence                  ║")
-	fmt.Println("║  Initialized.                                                 ║")
-	fmt.Println("║                                                               ║")
-	fmt.Printf("║  Node     : %-48s║\n", *nodeID)
-	fmt.Printf("║  Data dir : %-48s║\n", dir)
-	fmt.Println("║                                                               ║")
-	fmt.Println("║  Next: add your first access token                            ║")
-	fmt.Println(`║  slate token add --role chief --name "Chief Johnson"           ║`)
-	fmt.Println("║                                                               ║")
-	fmt.Println("║  Then start the dashboard:                                    ║")
-	fmt.Println("║  slate serve                                                  ║")
-	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println(bar)
+	fmt.Printf("  SLATE initialized for %s\n", *agency)
+	fmt.Printf("  Node: %s   .   Data dir: %s\n", *nodeID, dir)
+	fmt.Println("  This node runs fully local. No evidence data leaves the machine.")
+	fmt.Println()
+	fmt.Println("  Start the dashboard now:")
+	fmt.Println("      slate serve")
+	fmt.Printf("  Then open http://127.0.0.1:%d and sign in with the token below.\n", cfg.Port)
+	fmt.Println(bar)
+	fmt.Println()
+	fmt.Println("  >>> RECOVERY SHEET - PRINT THIS AND STORE IT OFFLINE <<<")
+	fmt.Println("  The node key is sealed to THIS machine. If the hardware dies, the")
+	fmt.Println("  raw key below is the ONLY way to restore this node's identity.")
+	fmt.Println()
+	fmt.Printf("  Agency          : %s\n", *agency)
+	fmt.Printf("  Node ID         : %s\n", *nodeID)
+	fmt.Printf("  Node fingerprint: %s...\n", fp)
+	fmt.Printf("  Node key (raw)  : %s\n", nodePriv)
+	fmt.Println()
+	fmt.Printf("  Admin sign-in token (%s):\n  %s\n", *adminName, adminToken)
+	fmt.Println("  Store this token securely - it grants full access and is not re-shown.")
+	fmt.Println(bar)
+}
+
+// runBrand updates the agency branding after init (name / accent / seal / logo).
+func runBrand() {
+	fs := flag.NewFlagSet("brand", flag.ExitOnError)
+	agency := fs.String("agency", "", "Agency name")
+	accent := fs.String("accent", "", "Accent color hex, e.g. #1e5aa8")
+	seal := fs.String("seal", "", "Seal / emblem text stamped on exports")
+	logoPath := fs.String("logo", "", "Path to a logo image (png/jpg/svg)")
+	clearLogo := fs.Bool("clear-logo", false, "Remove the stored logo")
+	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON")
+	_ = fs.Parse(os.Args[2:])
+
+	dir := slateDir()
+	cfg, err := loadConfig(dir)
+	if err != nil {
+		fatal("load config: %v (run `slate init` first)", err)
+	}
+	if *agency != "" {
+		cfg.Agency = *agency
+	}
+	if *accent != "" {
+		cfg.AccentColor = *accent
+	}
+	if *seal != "" {
+		cfg.Seal = *seal
+	}
+	if *clearLogo {
+		cfg.Logo = ""
+	} else if *logoPath != "" {
+		uri, lerr := logoDataURI(*logoPath)
+		if lerr != nil {
+			fatal("read logo: %v", lerr)
+		}
+		cfg.Logo = uri
+	}
+	if err := saveConfig(dir, cfg); err != nil {
+		fatal("save config: %v", err)
+	}
+	if *jsonOut {
+		apiwire.Print(map[string]any{"agency": cfg.Agency, "accent_color": cfg.AccentColor,
+			"seal": cfg.Seal, "has_logo": cfg.Logo != ""})
+		return
+	}
+	fmt.Printf("Branding updated: agency=%q accent=%q seal=%q logo=%v\n",
+		cfg.Agency, cfg.AccentColor, cfg.Seal, cfg.Logo != "")
+	fmt.Println("Reload the dashboard to see the changes.")
 }
 
 func runStatus() {
@@ -410,7 +521,7 @@ func runExport() {
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("read events: %v", err))
 	}
-	bundle, err := slateexport.Generate(entries, *caseNum, cfg.Department, cfg.NodeID)
+	bundle, err := slateexport.Generate(entries, *caseNum, cfg.Department, cfg.Agency, cfg.Seal, cfg.NodeID)
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("generate bundle: %v", err))
 	}
@@ -944,7 +1055,7 @@ func runPeerIdentity() {
 	_ = fs.Parse(os.Args[3:])
 	dir := slateDir()
 	cfg := mustLoadConfig(dir)
-	edPriv, pub, err := peer.LoadNodeKey()
+	edPriv, pub, err := resolveNodeKey(dir)
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeBadRequest, err.Error())
 	}
@@ -1059,7 +1170,7 @@ func runPeerTransfer() {
 		usageErr(*jsonOut, "usage: slate peer transfer --item ID --to NODE [--encrypt] [--notes TEXT]")
 	}
 
-	priv, _, err := peer.LoadNodeKey()
+	priv, _, err := resolveNodeKey(slateDir())
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeBadRequest, err.Error())
 	}
@@ -1458,7 +1569,7 @@ func runServe() {
 
 		// If a node key is available, derive this node's X25519 key so it can open
 		// sealed (encrypted) transfers. Absent a key, only cleartext is accepted.
-		if edPriv, _, err := peer.LoadNodeKey(); err == nil {
+		if edPriv, _, err := resolveNodeKey(dir); err == nil {
 			if encPriv, _, derr := peer.DeriveEncKey(edPriv); derr == nil {
 				srv.nodeEncPriv = encPriv
 			}
@@ -1494,7 +1605,7 @@ func runServe() {
 		// Optional signed presence beacon for LAN auto-discovery. Opt-in on top of
 		// the listener: it advertises identity + port only, never grants trust.
 		if *announce {
-			priv, _, err := peer.LoadNodeKey()
+			priv, _, err := resolveNodeKey(slateDir())
 			if err != nil {
 				fatal("--announce requires a node key: %v", err)
 			}
@@ -1532,6 +1643,7 @@ func runServe() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", srv.handleDashboard)
+	mux.Handle("/api/brand", http.HandlerFunc(srv.handleBrand)) // public: branding for the login screen
 	mux.Handle("/api/whoami", srv.require(roles.PermStatus)(http.HandlerFunc(srv.handleWhoami)))
 	mux.Handle("/api/status", srv.require(roles.PermStatus)(http.HandlerFunc(srv.handleStatus)))
 	mux.Handle("/api/items", srv.require(roles.PermStatus)(http.HandlerFunc(srv.handleItems)))
@@ -1701,6 +1813,22 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(dashboardHTML)
+}
+
+// handleBrand is public (no token): the login screen needs agency name, accent,
+// and logo before anyone signs in. It exposes only cosmetic fields.
+func (s *server) handleBrand(w http.ResponseWriter, r *http.Request) {
+	if !requireGet(w, r) {
+		return
+	}
+	apiwire.WriteOK(w, map[string]any{
+		"agency":       s.cfg.Agency,
+		"department":   s.cfg.Department,
+		"accent_color": s.cfg.AccentColor,
+		"seal":         s.cfg.Seal,
+		"logo":         s.cfg.Logo,
+		"node_id":      s.cfg.NodeID,
+	})
 }
 
 func (s *server) handleWhoami(w http.ResponseWriter, r *http.Request) {
@@ -1934,7 +2062,7 @@ func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
 		apiwire.WriteErr(w, http.StatusInternalServerError, apiwire.CodeInternal, "read events: "+err.Error())
 		return
 	}
-	bundle, err := slateexport.Generate(entries, req.CaseNumber, s.cfg.Department, s.cfg.NodeID)
+	bundle, err := slateexport.Generate(entries, req.CaseNumber, s.cfg.Department, s.cfg.Agency, s.cfg.Seal, s.cfg.NodeID)
 	if err != nil {
 		apiwire.WriteErr(w, http.StatusInternalServerError, apiwire.CodeInternal, "generate: "+err.Error())
 		return
@@ -2105,6 +2233,52 @@ func deriveSLATEKey(machineID string) ([]byte, error) {
 	return key, nil
 }
 
+func nodeKeyPath(dir string) string { return filepath.Join(dir, "nodekey.enc") }
+
+// sealNodeKey writes the node's Ed25519 private key (hex) encrypted at rest,
+// bound to this machine via the same machine-ID KDF as the evidence store, so
+// `serve` can open sealed transfers with no SLATE_NODE_KEY env var. The printed
+// recovery sheet is the ONLY portable copy: a machine-bound seal will not
+// decrypt on different hardware.
+func sealNodeKey(dir, privHex string) error {
+	key, err := deriveSLATEKey(machid.Get())
+	if err != nil {
+		return err
+	}
+	ct, err := encrypt.Seal([]byte(privHex), key)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(nodeKeyPath(dir), ct, 0600)
+}
+
+// loadSealedNodeKey reads and decrypts the at-rest node key written by init.
+func loadSealedNodeKey(dir string) (ed25519.PrivateKey, string, error) {
+	ct, err := os.ReadFile(nodeKeyPath(dir))
+	if err != nil {
+		return nil, "", err
+	}
+	key, err := deriveSLATEKey(machid.Get())
+	if err != nil {
+		return nil, "", err
+	}
+	privHex, err := encrypt.Open(ct, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("decrypt node key (wrong machine?): %w", err)
+	}
+	return peer.DecodeNodeKey(string(privHex))
+}
+
+// resolveNodeKey returns this node's Ed25519 identity key. SLATE_NODE_KEY (env)
+// wins when set — the strict, nothing-on-disk posture. Otherwise it falls back
+// to the machine-bound at-rest key written by `slate init`.
+func resolveNodeKey(dir string) (ed25519.PrivateKey, string, error) {
+	if os.Getenv(peer.NodeKeyEnv) != "" {
+		return peer.LoadNodeKey()
+	}
+	return loadSealedNodeKey(dir)
+}
+
 func installSoul(dst string) error {
 	if _, err := os.Stat(dst); err == nil {
 		return nil // already present
@@ -2125,6 +2299,30 @@ func installSoul(dst string) error {
 		return os.WriteFile(dst, data, 0400)
 	}
 	return fmt.Errorf("default soul file not found — clone the repo and run init from it")
+}
+
+// logoDataURI reads a small image file and returns it as a self-contained
+// data-URI, so branding needs no separate asset server and travels in config.
+func logoDataURI(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 512*1024 {
+		return "", fmt.Errorf("logo too large (%d KB); use an image under 512 KB", len(data)/1024)
+	}
+	mime := "image/png"
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jpg", ".jpeg":
+		mime = "image/jpeg"
+	case ".svg":
+		mime = "image/svg+xml"
+	case ".gif":
+		mime = "image/gif"
+	case ".webp":
+		mime = "image/webp"
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 func loadConfig(dir string) (Config, error) {

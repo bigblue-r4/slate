@@ -38,6 +38,10 @@
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: center; gap: 16px; height: 52px; }
   .brand { font-weight: 700; color: var(--accent); font-size: 15px; letter-spacing: .5px; }
   .brand-sub { color: var(--muted); font-size: 11px; }
+  .brand-agency { color: var(--text); font-weight: 600; font-size: 13px; margin-left: 2px; }
+  .hdr-logo { height: 22px; width: auto; border-radius: 3px; }
+  .login-logo { max-height: 56px; max-width: 180px; margin: 0 auto 12px; display: block; }
+  .login-agency { color: var(--text); font-size: 15px; font-weight: 600; margin-top: 2px; margin-bottom: 20px; }
   .header-info { color: var(--muted); font-size: 12px; }
   .user-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; font-size: 12px; }
   .sov-chip { background: rgba(63,185,80,.12); color: var(--success); border: 1px solid rgba(63,185,80,.35); border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 600; letter-spacing: .3px; white-space: nowrap; }
@@ -146,8 +150,10 @@
 <!-- ── Login ─────────────────────────────────────────────────────────────── -->
 <div id="login-screen">
   <div class="login-card">
+    <img id="brand-logo" class="login-logo" style="display:none" alt="">
     <h1>SLATE</h1>
     <div class="tagline">Secure Log Audit for Trace Evidence</div>
+    <div id="login-agency" class="login-agency"></div>
     <input type="password" id="token-input" placeholder="Access token" autocomplete="off">
     <button onclick="doLogin()">Sign in</button>
     <div id="login-error"></div>
@@ -157,7 +163,9 @@
 <!-- ── App ───────────────────────────────────────────────────────────────── -->
 <div id="app">
   <header>
+    <img id="header-logo" class="hdr-logo" style="display:none" alt="">
     <span class="brand">SLATE</span>
+    <span class="brand-agency" id="brand-agency"></span>
     <span class="brand-sub" id="node-info"></span>
     <div class="spacer"></div>
     <span class="sov-chip" id="sov-chip" title="This node runs fully local - no evidence data leaves the machine.">LOCAL NODE</span>
@@ -303,9 +311,30 @@ function toggleTheme() {
 
 // ─── login ──────────────────────────────────────────────────────────────────
 window.onload = () => {
+  applyBrand();
   TOKEN = sessionStorage.getItem('slate_token') || '';
   if (TOKEN) bootApp();
 };
+
+// Agency skinning — public /api/brand (no token): name, accent color, logo.
+async function applyBrand() {
+  try {
+    const env = await (await fetch('/api/brand')).json();
+    const b = env && env.data; if (!b) return;
+    if (b.accent_color) document.documentElement.style.setProperty('--accent', b.accent_color);
+    const name = b.agency || b.department || '';
+    if (name) {
+      document.title = name + ' — SLATE';
+      const la = document.getElementById('login-agency'); if (la) la.textContent = name;
+      const ha = document.getElementById('brand-agency'); if (ha) ha.textContent = name;
+    }
+    if (b.logo) {
+      ['brand-logo', 'header-logo'].forEach(id => {
+        const el = document.getElementById(id); if (el) { el.src = b.logo; el.style.display = ''; }
+      });
+    }
+  } catch (e) { /* branding is optional */ }
+}
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') doLogin();
 });
