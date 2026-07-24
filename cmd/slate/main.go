@@ -6,14 +6,16 @@
 //
 // Usage:
 //
-//	slate init       [--department NAME] [--node ID]
+//	slate init       --agency NAME [--node ID] [--accent HEX] [--seal TEXT] [--logo PATH]
+//	slate brand      [--agency N] [--accent HEX] [--seal TEXT] [--logo PATH | --clear-logo]
 //	slate status
 //	slate intake     --case C --desc D [--cat CATEGORY] [--node NODE] [--actor NAME]
 //	slate transfer   --item ID --from NODE --to NODE [--actor NAME] [--notes TEXT]
 //	slate hold set   --item ID --reason TEXT [--actor NAME]
 //	slate hold release --item ID [--actor NAME] [--notes TEXT]
 //	slate export     --case C [--sign] [--actor NAME]
-//	slate token add  --role ROLE --name NAME
+//	slate receipt    ITEM-ID [--out FILE]
+//	slate token add  --role ROLE --name NAME [--badge NUMBER]
 //	slate token list
 //	slate token revoke TOKEN
 //	slate keygen
@@ -2615,19 +2617,24 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `slate %s — Secure Log Audit for Trace Evidence
 
 Commands:
-  init         [--department NAME] [--node ID]    Initialize SLATE data store
+  init         --agency NAME [--node ID] [--accent HEX] [--seal TEXT] [--logo PATH]
+                                                  Initialize: seals a node key, mints
+                                                  a first admin token, prints a recovery sheet
+  brand        [--agency N] [--accent HEX] [--seal TEXT] [--logo PATH|--clear-logo]
+                                                  Update agency branding
   status                                          Show system status
   intake       --case C --desc D                  Record evidence intake
   transfer     --item ID --from N --to N          Transfer custody (same node)
   hold set     --item ID --reason TEXT            Set legal hold
   hold release --item ID                          Release legal hold
   export       --case C [--sign]                  Generate court export bundle
+  receipt      ITEM-ID [--out FILE]               Printable QR chain-of-custody receipt
   audit query  [filters]                          Query the audit log
   import       --file PATH [--dry-run]            Bulk intake from CSV/JSON (atomic)
   batch        transfer|hold [selectors]          Multi-item operations
   verify                                          Check audit-log hash chain integrity
   peer         keygen|identity|add|list|remove|transfer   Multi-node LAN custody
-  token add    --role ROLE --name NAME            Add access token
+  token add    --role ROLE --name NAME [--badge N]   Add access token
   token list                                      List tokens
   token revoke TOKEN                              Revoke token
   keygen                                          Generate Ed25519 export signing key pair
@@ -2637,11 +2644,13 @@ Commands:
 Every command accepts --json for stable, schema-versioned output (schema %q).
 
 Roles: chief, evidence_clerk, tech_admin, officer, auditor
+       (shown in the dashboard as Command, Evidence Custodian, Admin, Patrol, Records)
 
 Environment:
   SLATE_DIR        Override data directory (default: ~/.slate)
   SLATE_SIGN_KEY   Ed25519 private key hex for signing exports
-  SLATE_NODE_KEY   Ed25519 private key hex for node identity (peer transfers)
+  SLATE_NODE_KEY   Ed25519 private key hex for node identity (optional; overrides the
+                   machine-bound at-rest key created by init)
 
 `, version, apiwire.Schema)
 }
