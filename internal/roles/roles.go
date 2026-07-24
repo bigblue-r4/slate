@@ -33,6 +33,26 @@ var grants = map[Role][]string{
 	Auditor:       {PermAuditRead, PermStatus},
 }
 
+// labels maps each internal role to its PD-friendly display name. The internal
+// enum and stored token role strings are unchanged — this is display only, so
+// the UI reads like a department org chart without a data migration.
+var labels = map[Role]string{
+	Chief:         "Command",
+	EvidenceClerk: "Evidence Custodian",
+	TechAdmin:     "Admin",
+	Officer:       "Patrol",
+	Auditor:       "Records",
+}
+
+// Label returns the PD-friendly display name for a role, or the raw role string
+// if it is unrecognized.
+func Label(r Role) string {
+	if l, ok := labels[r]; ok {
+		return l
+	}
+	return string(r)
+}
+
 // Can reports whether role has permission.
 func Can(role Role, perm string) bool {
 	for _, p := range grants[role] {

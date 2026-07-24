@@ -20,8 +20,9 @@ import (
 type Entry struct {
 	Token   string `json:"token"`
 	Role    string `json:"role"`
-	Name    string `json:"name"`     // human-readable — appears in audit logs as the actor
-	AddedAt string `json:"added_at"` // YYYY-MM-DD
+	Name    string `json:"name"`            // human-readable — appears in audit logs as the actor
+	Badge   string `json:"badge,omitempty"` // officer badge/ID number — renders identity as a person, not hex
+	AddedAt string `json:"added_at"`        // YYYY-MM-DD
 }
 
 // Store is a simple append-only token registry backed by a JSON file.
@@ -50,9 +51,10 @@ func (s *Store) Lookup(token string) (Entry, bool) {
 	return Entry{}, false
 }
 
-// Add generates a new random token bound to role/name, saves it, and returns
-// the token string. The caller must print it; it cannot be recovered later.
-func (s *Store) Add(role, name string) (string, error) {
+// Add generates a new random token bound to role/name (and optional badge),
+// saves it, and returns the token string. The caller must print it; it cannot
+// be recovered later.
+func (s *Store) Add(role, name, badge string) (string, error) {
 	if !roles.Valid(role) {
 		return "", fmt.Errorf("unknown role %q — valid roles: chief, evidence_clerk, tech_admin, officer, auditor", role)
 	}
@@ -70,6 +72,7 @@ func (s *Store) Add(role, name string) (string, error) {
 		Token:   token,
 		Role:    role,
 		Name:    name,
+		Badge:   badge,
 		AddedAt: time.Now().UTC().Format("2006-01-02"),
 	})
 	return token, s.save()
