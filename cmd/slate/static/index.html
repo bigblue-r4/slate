@@ -475,6 +475,12 @@ function itemRow(it) {
   </tr>`;
 }
 
+// Open a printable QR custody receipt in a new tab (token via query param, which
+// the auth middleware accepts for GETs on the localhost-only server).
+function printReceipt(id) {
+  window.open('/api/receipt?item=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(TOKEN), '_blank');
+}
+
 // ─── Item detail ──────────────────────────────────────────────────────────────
 function openItem(id) {
   const it = ITEMS_CACHE.find(x => x.id === id);
@@ -491,6 +497,8 @@ function openItem(id) {
     acts.push(`<button class="btn small ghost" onclick="openHold('${esc(id)}','set')">Set hold</button>`);
   if (PERMS['export'] && it)
     acts.push(`<button class="btn small ghost" onclick="doExport('${esc(it.case_number)}')">Export case</button>`);
+  if (it)
+    acts.push(`<button class="btn small ghost" onclick="printReceipt('${esc(id)}')">Print receipt</button>`);
   document.getElementById('im-actions').innerHTML = acts.join('');
   openModal('item-modal');
   if (!PERMS['audit:read']) {
