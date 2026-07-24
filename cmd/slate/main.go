@@ -63,7 +63,7 @@ import (
 //go:embed static/index.html
 var dashboardHTML []byte
 
-const version = "1.2.0"
+const version = "1.3.0"
 
 // ── context keys ──────────────────────────────────────────────────────────────
 
