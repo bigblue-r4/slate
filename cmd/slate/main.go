@@ -32,9 +32,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -48,6 +50,7 @@ import (
 
 	_ "embed"
 
+	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/bigblue-r4/slate/internal/apiwire"
@@ -60,6 +63,7 @@ import (
 	"github.com/bigblue-r4/slate/internal/query"
 	"github.com/bigblue-r4/slate/internal/roles"
 	"github.com/bigblue-r4/slate/internal/soul"
+	"github.com/bigblue-r4/slate/internal/store"
 	"github.com/bigblue-r4/slate/internal/tokens"
 )
 
@@ -112,6 +116,8 @@ func main() {
 		runHold()
 	case "export":
 		runExport()
+	case "receipt":
+		runReceipt()
 	case "audit":
 		runAudit()
 	case "import":
@@ -1653,6 +1659,7 @@ func runServe() {
 	mux.Handle("/api/hold/set", srv.require(roles.PermHoldSet)(http.HandlerFunc(srv.handleHoldSet)))
 	mux.Handle("/api/hold/release", srv.require(roles.PermHoldRelease)(http.HandlerFunc(srv.handleHoldRelease)))
 	mux.Handle("/api/export", srv.require(roles.PermExport)(http.HandlerFunc(srv.handleExport)))
+	mux.Handle("/api/receipt", srv.require(roles.PermStatus)(http.HandlerFunc(srv.handleReceipt)))
 	mux.Handle("/api/stream", srv.require(roles.PermStatus)(http.HandlerFunc(srv.handleStream)))
 
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
@@ -1817,6 +1824,40 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 // handleBrand is public (no token): the login screen needs agency name, accent,
 // and logo before anyone signs in. It exposes only cosmetic fields.
+func (s *server) handleReceipt(w http.ResponseWriter, r *http.Request) {
+	if !requireGet(w, r) {
+		return
+	}
+	itemID := r.URL.Query().Get("item")
+	if itemID == "" {
+		apiwire.WriteErr(w, http.StatusBadRequest, apiwire.CodeBadRequest, "missing item")
+		return
+	}
+	var item *evidence.Item
+	for _, it := range s.store.GetItems("") {
+		if it.ID == itemID {
+			item = it
+			break
+		}
+	}
+	if item == nil {
+		apiwire.WriteErr(w, http.StatusNotFound, apiwire.CodeNotFound, "item not found")
+		return
+	}
+	events, err := s.store.EventsForItem(itemID)
+	if err != nil {
+		apiwire.WriteErr(w, http.StatusInternalServerError, apiwire.CodeInternal, "read events: "+err.Error())
+		return
+	}
+	doc, err := buildReceiptHTML(s.cfg, item, events)
+	if err != nil {
+		apiwire.WriteErr(w, http.StatusInternalServerError, apiwire.CodeInternal, "build receipt: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(doc))
+}
+
 func (s *server) handleBrand(w http.ResponseWriter, r *http.Request) {
 	if !requireGet(w, r) {
 		return
@@ -2210,6 +2251,161 @@ func mustLoadConfig(dir string) Config {
 		fatal("not initialized — run: slate init")
 	}
 	return cfg
+}
+
+// ── custody receipts (printable, QR-verifiable) ─────────────────────────────
+
+// custodyDigest is a deterministic SHA-256 over an item's ordered custody
+// events — recomputable to verify the receipt matches the chain.
+func custodyDigest(events []store.Entry) string {
+	h := sha256.New()
+	for _, e := range events {
+		fmt.Fprintf(h, "%d|%s|%s|%s\n", e.Seq, e.Event, e.PrevHash, string(e.Data))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func findItem(ev *evidence.Store, itemID string) *evidence.Item {
+	for _, it := range ev.GetItems("") {
+		if it.ID == itemID {
+			return it
+		}
+	}
+	return nil
+}
+
+// buildReceiptHTML renders a standalone, printable chain-of-custody receipt with
+// an embedded QR encoding item id + case + node + custody digest — verifiable
+// offline, so custody survives a dead battery.
+func buildReceiptHTML(cfg Config, item *evidence.Item, events []store.Entry) (string, error) {
+	digest := custodyDigest(events)
+	agency := cfg.Agency
+	if agency == "" {
+		agency = cfg.Department
+	}
+	genAt := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	payload := fmt.Sprintf("SLATE|item=%s|case=%s|node=%s|digest=%s|events=%d|at=%s",
+		item.ID, item.CaseNumber, cfg.NodeID, digest, len(events), time.Now().UTC().Format(time.RFC3339))
+	png, err := qrcode.Encode(payload, qrcode.Medium, 320)
+	if err != nil {
+		return "", err
+	}
+	qrURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(png)
+
+	esc := html.EscapeString
+	logoImg := ""
+	if cfg.Logo != "" {
+		logoImg = fmt.Sprintf(`<img src="%s" alt="" style="height:52px">`, esc(cfg.Logo))
+	}
+	sealLine := ""
+	if cfg.Seal != "" {
+		sealLine = fmt.Sprintf(`<div class="seal">%s</div>`, esc(cfg.Seal))
+	}
+	hold := "No"
+	if item.LegalHold {
+		hold = "YES"
+		if item.HoldReason != "" {
+			hold += " — " + esc(item.HoldReason)
+		}
+	}
+	var timeline strings.Builder
+	for _, e := range events {
+		var ce evidence.CustodyEvent
+		_ = json.Unmarshal(e.Data, &ce)
+		fmt.Fprintf(&timeline, `<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`,
+			e.Seq, esc(e.Timestamp.UTC().Format("2006-01-02 15:04")),
+			esc(ce.EventType), esc(ce.Actor), esc(ce.Notes))
+	}
+
+	return fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8">
+<title>Custody Receipt %s</title>
+<style>
+ body{font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#111;max-width:760px;margin:24px auto;padding:0 20px}
+ .hd{display:flex;align-items:center;gap:14px;border-bottom:2px solid #1e5aa8;padding-bottom:10px}
+ .hd .ag{font-size:20px;font-weight:700}
+ .seal{color:#555;font-size:12px}
+ h1{font-size:16px;margin:18px 0 6px}
+ table{border-collapse:collapse;width:100%%;margin:6px 0 14px;font-size:12px}
+ th,td{border:1px solid #ccc;padding:5px 8px;text-align:left}
+ th{background:#f3f5f8}
+ .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;margin:8px 0}
+ .kv b{color:#555;font-weight:600}
+ .qrwrap{text-align:center;margin:18px 0}
+ .digest{font-family:ui-monospace,Menlo,monospace;font-size:11px;word-break:break-all;background:#f6f8fa;padding:8px;border:1px solid #ddd;border-radius:4px}
+ .foot{color:#666;font-size:11px;margin-top:16px;border-top:1px solid #ddd;padding-top:8px}
+ @media print{body{margin:0}}
+</style></head><body>
+<div class="hd">%s<div><div class="ag">%s</div>%s</div></div>
+<h1>Chain-of-Custody Receipt</h1>
+<div class="kv">
+ <b>Item ID</b><span>%s</span>
+ <b>Case number</b><span>%s</span>
+ <b>Category</b><span>%s</span>
+ <b>Description</b><span>%s</span>
+ <b>Status</b><span>%s</span>
+ <b>Legal hold</b><span>%s</span>
+ <b>Current node</b><span>%s</span>
+ <b>Intake by</b><span>%s</span>
+ <b>Generated</b><span>%s</span>
+</div>
+<h1>Custody digest</h1>
+<div class="digest">%s</div>
+<div class="qrwrap"><img src="%s" alt="custody QR" style="width:230px;height:230px"><div style="font-size:11px;color:#666">Scan to verify (item &middot; case &middot; node &middot; digest)</div></div>
+<h1>Custody timeline (%d events)</h1>
+<table><thead><tr><th>Seq</th><th>Time (UTC)</th><th>Event</th><th>Actor</th><th>Notes</th></tr></thead><tbody>%s</tbody></table>
+<div class="foot">Generated locally by SLATE on node %s. This node runs fully offline; no data left the machine. Verify the digest by recomputing it from the item's custody chain.</div>
+</body></html>`,
+		esc(item.ID), logoImg, esc(agency), sealLine,
+		esc(item.ID), esc(item.CaseNumber), esc(item.Category), esc(item.Description),
+		esc(item.Status), hold, esc(item.CurrentNode), esc(item.CreatedBy), genAt,
+		digest, qrURI, len(events), timeline.String(), esc(cfg.NodeID)), nil
+}
+
+func runReceipt() {
+	fs := flag.NewFlagSet("receipt", flag.ExitOnError)
+	out := fs.String("out", "", "Write the HTML receipt to this file (default: stdout)")
+	jsonOut := fs.Bool("json", false, "Emit machine-readable JSON (path + digest)")
+	_ = fs.Parse(os.Args[2:])
+	rest := fs.Args()
+	if len(rest) < 1 {
+		usageErr(*jsonOut, "usage: slate receipt ITEM-ID [--out FILE]")
+	}
+	itemID := rest[0]
+	_ = fs.Parse(rest[1:]) // allow flags placed after the item id (slate receipt ID --out FILE)
+	cfg, err := loadConfig(slateDir())
+	if err != nil {
+		fatal("load config: %v (run `slate init` first)", err)
+	}
+	ev, _ := mustOpenStore()
+	defer ev.Close()
+	item := findItem(ev, itemID)
+	if item == nil {
+		failCmd(*jsonOut, apiwire.CodeNotFound, fmt.Sprintf("no item with id %q", itemID))
+	}
+	events, err := ev.EventsForItem(itemID)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("read events: %v", err))
+	}
+	doc, err := buildReceiptHTML(cfg, item, events)
+	if err != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("build receipt: %v", err))
+	}
+	if *out != "" {
+		if err := os.WriteFile(*out, []byte(doc), 0600); err != nil {
+			failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("write: %v", err))
+		}
+		if *jsonOut {
+			apiwire.Print(map[string]string{"item": itemID, "path": *out, "digest": custodyDigest(events)})
+			return
+		}
+		fmt.Printf("Receipt written to %s\n", *out)
+		return
+	}
+	if *jsonOut {
+		apiwire.Print(map[string]string{"item": itemID, "digest": custodyDigest(events)})
+		return
+	}
+	fmt.Print(doc)
 }
 
 func slateDir() string {
