@@ -238,7 +238,13 @@ Built for the people who actually use it — a sergeant, a custodian, a chief:
 ## Security model
 
 - AES-256-GCM encrypted log, HKDF-derived key from machine ID
-- SHA-256 hash-chained entries — any tampering breaks the chain
+- SHA-256 hash-chained entries — any edit to a record breaks the chain
+- Signed truncation anchor (`primary/log-head.json`) — records removed from the *end* of the log
+  leave a chain that still verifies, so the log's length and final hash are signed separately with
+  the node key. `slate verify` reports both. **This is detection, not prevention:** an attacker with
+  root on the node can truncate the log and re-sign the anchor. What they cannot do is slot a
+  replacement into a sequence of heads somebody else already holds a copy of, because each head
+  hashes its predecessor
 - Role-based API: every Bearer token is bound to a role
 - Actor name in audit logs comes from the token, not user-supplied input
 - Legal holds are hard-blocked in code — not just policy

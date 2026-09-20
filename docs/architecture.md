@@ -42,6 +42,31 @@ Two layers work together:
 - Decrypted payload: `store.Entry` JSON with `seq`, `ts`, `level`, `event`, `source`, `prev_hash`, `data`
 - `data` is a `CustodyEvent` JSON payload with `case_number` embedded for export filtering
 
+**Truncation anchor** (`~/.slate/primary/log-head.json`):
+- `{ seq, tip_hash, prev_head, ts, sig, signer_key }`, rewritten on every append
+- Exists because the hash chain cannot see a truncation. Drop the last N records and what remains
+  is a shorter chain in which every `prev_hash` still lines up and `seq` still counts from 1 —
+  nothing *inside* the log records how long the log is meant to be. The anchor records it outside.
+- Signed with the node's Ed25519 identity key, the same key used for discovery announcements and
+  sealed transfers, resolved via `resolveNodeKey` (env `SLATE_NODE_KEY`, else the machine-bound
+  `nodekey.enc`). No separate key, no extra key management.
+- `prev_head` is the SHA-256 of the previous head file's raw bytes, so successive heads form their
+  own chain
+- Written temp-file-then-rename, and written *after* the record reaches the log. A crash between
+  the two leaves a head that is behind the log ("stale"), never one claiming records the log does
+  not hold — stale is recoverable and honest, over-claiming would be indistinguishable from
+  truncation.
+- **Logs with no anchor are not failures.** Every log written before this existed has none;
+  `slate verify` reports "not anchored" and exits 0.
+
+**What the anchor does not do.** The node signs its own head with a key on the same machine as the
+log, so root on the node can truncate and re-sign. This is not tamper-proofing. It gives detection
+to an observer holding an earlier head — the `prev_head` chain means a substituted head cannot be
+slid into a sequence someone else has already seen, which is what makes the peer and export paths
+useful as witnesses rather than just transports. Proving one item's custody history *without*
+disclosing the rest of the log is a different property again; that needs a Merkle tree and is not
+attempted here.
+
 **Evidence catalog** (`~/.slate/primary/items.json`):
 - Mutable JSON — current state of all items
 - Updated atomically on each mutation, protected by a mutex

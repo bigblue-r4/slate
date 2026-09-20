@@ -2,6 +2,7 @@
 package store
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -33,15 +34,39 @@ const logFilename = "witness.log"
 type Store struct {
 	mu       sync.Mutex
 	path     string
+	dir      string
 	key      []byte
 	seq      uint64
 	prevHash string
 	f        *os.File
+
+	// signer is nil unless the store was opened via OpenSigned. When set, every
+	// successful Append rewrites the signed head in log-head.json. See head.go.
+	signer   ed25519.PrivateKey
+	prevHead string
 }
 
 // Open opens or creates the log at dir/witness.log.
 // If existing entries are present it resumes the chain from the last entry.
+//
+// A store opened this way writes no truncation anchor. That is the correct
+// behaviour for read paths and for callers with no node key; use OpenSigned on
+// a live node so the log is anchored. See head.go for what the anchor is worth.
 func Open(dir string, key []byte) (*Store, error) {
+	return openStore(dir, key, nil)
+}
+
+// OpenSigned opens the log and anchors it: every Append rewrites a signed
+// log-head.json recording how many records the log holds and what the last one
+// hashed to, so that removing records from the end becomes detectable.
+//
+// priv is the node's Ed25519 identity key — the same key used for signed
+// discovery announcements and sealed transfers. No new key is introduced.
+func OpenSigned(dir string, key []byte, priv ed25519.PrivateKey) (*Store, error) {
+	return openStore(dir, key, priv)
+}
+
+func openStore(dir string, key []byte, priv ed25519.PrivateKey) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
@@ -50,7 +75,17 @@ func Open(dir string, key []byte) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{path: path, key: key, f: f}
+	s := &Store{path: path, dir: dir, key: key, f: f, signer: priv}
+
+	// Chain the next head to whatever head is already on disk, so a sequence of
+	// heads cannot be silently replaced by one somebody else has not seen.
+	if priv != nil {
+		ph, err := hashHeadFile(dir)
+		if err != nil {
+			return nil, err
+		}
+		s.prevHead = ph
+	}
 
 	// Resume chain state from existing entries.
 	if entries, err := ReadAll(dir, key); err == nil && len(entries) > 0 {
@@ -107,6 +142,21 @@ func (s *Store) Append(level, event, source string, data interface{}) error {
 	// Advance chain hash.
 	sum := sha256.Sum256(plain)
 	s.prevHash = hex.EncodeToString(sum[:])
+
+	// Re-anchor. Written after the record is on disk, so a crash between the two
+	// leaves a head that is behind the log ("stale"), never one that claims
+	// records the log does not contain. Stale is recoverable and honest;
+	// over-claiming would look exactly like truncation.
+	if s.signer != nil {
+		if err := writeHead(s.dir, s.seq, s.prevHash, s.prevHead, s.signer); err != nil {
+			return fmt.Errorf("record written but anchor failed to update: %w", err)
+		}
+		ph, err := hashHeadFile(s.dir)
+		if err != nil {
+			return err
+		}
+		s.prevHead = ph
+	}
 	return nil
 }
 
@@ -136,6 +186,7 @@ type ChainResult struct {
 	BreakAt int    `json:"break_at"` // 1-based record index of the first break (0 if none)
 	Seq     uint64 `json:"seq"`      // seq of the record at the break (0 if none)
 	Reason  string `json:"reason"`   // human-readable cause of the break
+	TipHash string `json:"tip_hash"` // SHA-256 of the last verified record's plaintext
 }
 
 // VerifyChain walks dir/witness.log record by record and checks tamper-evidence:
@@ -144,10 +195,13 @@ type ChainResult struct {
 //   - each record's prev_hash equals SHA-256 of the previous record's plaintext
 //     (else: a record's contents were altered or a record was dropped).
 //
-// It reports the FIRST break found. A clean chain returns OK=true. Note: the
-// hash chain proves no partial edit; a key holder who rewrites the entire log
-// cannot be caught by the chain alone — that is what signed export bundles are
-// for.
+// It reports the FIRST break found. A clean chain returns OK=true.
+//
+// Two things the chain alone cannot catch, both by construction:
+//   - A key holder who rewrites the ENTIRE log. Signed export bundles cover that.
+//   - TRUNCATION. Dropping the last N records leaves a shorter chain that still
+//     verifies perfectly, because nothing inside the log records how long it is
+//     meant to be. Use VerifyHead for that — see head.go.
 func VerifyChain(dir string, key []byte) (ChainResult, error) {
 	path := filepath.Join(dir, logFilename)
 	f, err := os.Open(path)
@@ -203,7 +257,7 @@ func VerifyChain(dir string, key []byte) (ChainResult, error) {
 		wantSeq++
 		count++
 	}
-	return ChainResult{Entries: count, OK: true}, nil
+	return ChainResult{Entries: count, OK: true, TipHash: prevHash}, nil
 }
 
 // ReadAll decrypts and returns all entries from dir/witness.log.
