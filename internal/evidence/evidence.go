@@ -2,6 +2,7 @@
 package evidence
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -54,12 +55,31 @@ type Store struct {
 	items map[string]*Item
 }
 
-// Open opens or creates the evidence store at dir.
+// Open opens or creates the evidence store at dir. The audit log is NOT
+// anchored — use OpenSigned on a live node so tail truncation is detectable.
 func Open(dir string, key []byte) (*Store, error) {
+	return open(dir, key, nil)
+}
+
+// OpenSigned opens the evidence store and anchors its audit log with the node's
+// Ed25519 identity key, so every append rewrites a signed log-head.json.
+func OpenSigned(dir string, key []byte, priv ed25519.PrivateKey) (*Store, error) {
+	return open(dir, key, priv)
+}
+
+func open(dir string, key []byte, priv ed25519.PrivateKey) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	s, err := store.Open(dir, key)
+	var (
+		s   *store.Store
+		err error
+	)
+	if priv != nil {
+		s, err = store.OpenSigned(dir, key, priv)
+	} else {
+		s, err = store.Open(dir, key)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -291,9 +311,16 @@ func (ev *Store) GetAllEvents() ([]store.Entry, error) {
 }
 
 // VerifyChain checks the tamper-evident hash chain of the underlying log and
-// reports the first break, if any.
+// reports the first break, if any. It cannot detect truncation — see VerifyHead.
 func (ev *Store) VerifyChain() (store.ChainResult, error) {
 	return store.VerifyChain(ev.dir, ev.key)
+}
+
+// VerifyHead checks the log against its signed anchor, which is what catches
+// records removed from the end. A log with no anchor reports Present=false and
+// is not a failure.
+func (ev *Store) VerifyHead() (store.HeadResult, error) {
+	return store.VerifyHead(ev.dir, ev.key)
 }
 
 // EventsForItem returns all audit log entries whose custody event references

@@ -978,24 +978,62 @@ func runVerify() {
 	if err != nil {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("verify: %v", err))
 	}
+	head, herr := ev.VerifyHead()
+	if herr != nil {
+		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("verify anchor: %v", herr))
+	}
+
 	if *jsonOut {
-		apiwire.Print(res)
-		if !res.OK {
+		apiwire.Print(struct {
+			Chain any `json:"chain"`
+			Head  any `json:"head"`
+		}{res, head})
+		// A truncated log passes the chain check by construction, so the exit
+		// status has to account for the anchor or a script would call it clean.
+		if !res.OK || head.Truncate {
 			os.Exit(1)
 		}
 		return
 	}
+
 	if res.OK {
 		fmt.Printf("✓ Chain intact — %d record(s) verified.\n", res.Entries)
-		return
+	} else {
+		fmt.Printf("✗ Chain BROKEN at record %d", res.BreakAt)
+		if res.Seq > 0 {
+			fmt.Printf(" (seq %d)", res.Seq)
+		}
+		fmt.Printf(": %s\n", res.Reason)
+		fmt.Printf("  %d record(s) verified before the break.\n", res.Entries)
 	}
-	fmt.Printf("✗ Chain BROKEN at record %d", res.BreakAt)
-	if res.Seq > 0 {
-		fmt.Printf(" (seq %d)", res.Seq)
+
+	switch {
+	case head.Truncate:
+		fmt.Printf("✗ LOG TRUNCATED — %s\n", head.Reason)
+		fmt.Printf("  The chain above verifies because a truncated chain always does.\n")
+		fmt.Printf("  The anchor is what caught this. Signer: %s\n", head.Signer)
+		os.Exit(1)
+	case head.OK:
+		fmt.Printf("✓ Anchor intact — signed for %d record(s) by %s\n", head.HeadSeq, short(head.Signer))
+	case !head.Present:
+		fmt.Printf("• Not anchored — %s\n", head.Reason)
+		fmt.Printf("  Records appended from here will anchor automatically.\n")
+	default:
+		fmt.Printf("✗ Anchor problem — %s\n", head.Reason)
+		os.Exit(1)
 	}
-	fmt.Printf(": %s\n", res.Reason)
-	fmt.Printf("  %d record(s) verified before the break.\n", res.Entries)
-	os.Exit(1)
+
+	if !res.OK {
+		os.Exit(1)
+	}
+}
+
+// short trims a hex key for display without pretending it is the whole thing.
+func short(hexKey string) string {
+	if len(hexKey) <= 16 {
+		return hexKey
+	}
+	return hexKey[:16] + "…"
 }
 
 // ── multi-node (peers) ─────────────────────────────────────────────────────────
@@ -2232,7 +2270,22 @@ func mustOpenStore() (*evidence.Store, []byte) {
 	dir := slateDir()
 	mustLoadConfig(dir) // verifies initialized
 	key := mustDeriveKey()
-	ev, err := evidence.Open(filepath.Join(dir, "primary"), key)
+	primary := filepath.Join(dir, "primary")
+
+	// Anchor the audit log with the node's Ed25519 identity key when one is
+	// resolvable, so appends keep log-head.json current and records removed from
+	// the end become detectable. Same graceful-degradation shape as the sealed
+	// transfer path: no key means the log still works, just unanchored — which
+	// is exactly the state every pre-anchor deployment is already in.
+	var (
+		ev  *evidence.Store
+		err error
+	)
+	if edPriv, _, kerr := resolveNodeKey(dir); kerr == nil {
+		ev, err = evidence.OpenSigned(primary, key, edPriv)
+	} else {
+		ev, err = evidence.Open(primary, key)
+	}
 	if err != nil {
 		fatal("open store: %v", err)
 	}
@@ -2632,7 +2685,7 @@ Commands:
   audit query  [filters]                          Query the audit log
   import       --file PATH [--dry-run]            Bulk intake from CSV/JSON (atomic)
   batch        transfer|hold [selectors]          Multi-item operations
-  verify                                          Check audit-log hash chain integrity
+  verify                                          Check audit-log chain integrity and the truncation anchor
   peer         keygen|identity|add|list|remove|transfer   Multi-node LAN custody
   token add    --role ROLE --name NAME [--badge N]   Add access token
   token list                                      List tokens
