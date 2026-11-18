@@ -1,0 +1,8 @@
+# golangci-lint v2 config. v2 dropped v1's built-in exclusions; the
+# std-error-handling preset restores the one this repo relied on (unchecked
+# Close/Flush/Remove/print errors), so the checks match what v1 ran.
+version: "2"
+linters:
+  exclusions:
+    presets:
+      - std-error-handling
