@@ -992,7 +992,7 @@ func runVerify() {
 			Head  any `json:"head"`
 		}{res, head}}
 		if !valid {
-			envelope.Error = &apiwire.ErrorObj{Code: "verification_failed", Message: "chain or anchor verification failed"}
+			envelope.Error = &apiwire.ErrorObj{Code: apiwire.CodeVerificationFailed, Message: "chain or anchor verification failed"}
 		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")

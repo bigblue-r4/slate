@@ -38,12 +38,13 @@ type ErrorObj struct {
 
 // Common error codes. Keep these stable — clients may switch on them.
 const (
-	CodeBadRequest   = "bad_request"
-	CodeUnauthorized = "unauthorized"
-	CodeForbidden    = "forbidden"
-	CodeNotFound     = "not_found"
-	CodeConflict     = "conflict"
-	CodeInternal     = "internal"
+	CodeBadRequest         = "bad_request"
+	CodeUnauthorized       = "unauthorized"
+	CodeForbidden          = "forbidden"
+	CodeNotFound           = "not_found"
+	CodeConflict           = "conflict"
+	CodeInternal           = "internal"
+	CodeVerificationFailed = "verification_failed"
 )
 
 // OK wraps a payload in a success envelope.
