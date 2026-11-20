@@ -196,7 +196,7 @@ func VerifyHead(dir string, key []byte) (HeadResult, error) {
 
 	h, err := ReadHead(dir)
 	if err != nil {
-		return HeadResult{Reason: err.Error()}, nil
+		return HeadResult{Present: true, LogSeq: uint64(chain.Entries), Reason: err.Error()}, nil
 	}
 	if h == nil {
 		return HeadResult{

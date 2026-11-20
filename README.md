@@ -74,6 +74,12 @@ slate serve      [--port 8890] [--peer-listen HOST:PORT] [--announce] [--require
 slate version
 ```
 
+`slate verify` uses the same pass/fail policy in text and JSON modes. A broken
+chain or an existing malformed, unreadable, stale, mismatched or invalidly signed
+anchor returns exit 1. JSON also sets the envelope's `ok` to false and retains
+chain/head diagnostics. A genuinely missing legacy anchor remains explicitly
+unanchored and compatible; this does not establish truncation protection.
+
 **Every command accepts `--json`** for stable, schema-versioned output. This is
 the same contract the dashboard consumes — there is no separate data path.
 
