@@ -983,14 +983,23 @@ func runVerify() {
 		failCmd(*jsonOut, apiwire.CodeInternal, fmt.Sprintf("verify anchor: %v", herr))
 	}
 
+	// Missing legacy anchors remain compatible; every existing invalid anchor
+	// and every broken chain fails in both output modes.
+	valid := res.OK && (!head.Present || head.OK)
 	if *jsonOut {
-		apiwire.Print(struct {
+		envelope := apiwire.Envelope{Schema: apiwire.Schema, OK: valid, Data: struct {
 			Chain any `json:"chain"`
 			Head  any `json:"head"`
-		}{res, head})
-		// A truncated log passes the chain check by construction, so the exit
-		// status has to account for the anchor or a script would call it clean.
-		if !res.OK || head.Truncate {
+		}{res, head}}
+		if !valid {
+			envelope.Error = &apiwire.ErrorObj{Code: "verification_failed", Message: "chain or anchor verification failed"}
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(envelope); err != nil {
+			fatal("write verification result: %v", err)
+		}
+		if !valid {
 			os.Exit(1)
 		}
 		return
@@ -1012,7 +1021,6 @@ func runVerify() {
 		fmt.Printf("✗ LOG TRUNCATED — %s\n", head.Reason)
 		fmt.Printf("  The chain above verifies because a truncated chain always does.\n")
 		fmt.Printf("  The anchor is what caught this. Signer: %s\n", head.Signer)
-		os.Exit(1)
 	case head.OK:
 		fmt.Printf("✓ Anchor intact — signed for %d record(s) by %s\n", head.HeadSeq, short(head.Signer))
 	case !head.Present:
@@ -1020,10 +1028,9 @@ func runVerify() {
 		fmt.Printf("  Records appended from here will anchor automatically.\n")
 	default:
 		fmt.Printf("✗ Anchor problem — %s\n", head.Reason)
-		os.Exit(1)
 	}
 
-	if !res.OK {
+	if !valid {
 		os.Exit(1)
 	}
 }
