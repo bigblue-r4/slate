@@ -1,0 +1,33 @@
+name: Advisories
+
+# H08 C03: dependency advisory check, separate from CI so it can run on a schedule and
+# is not a required merge check unless branch protection is changed to make it one.
+on:
+  push:
+    branches: [main]
+    paths: ["go.mod", "go.sum", ".github/workflows/advisories.yml"]
+  pull_request:
+    paths: ["go.mod", "go.sum", ".github/workflows/advisories.yml"]
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      # Source mode: fails only when an affected function is reachable from this code.
+      # Module-only matches (imported package, vulnerable symbol not called) are listed
+      # but do not fail the job. Pinned by version; the Go checksum database verifies it.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
